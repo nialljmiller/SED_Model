@@ -1,8 +1,69 @@
-__pycache__/
+
+# Python bytecode
+
+**pycache**/
 *.py[cod]
+
+# Compiled extensions
+
 *.so
 *.pyd
-*.egg-info/
+
+# Build artifacts
+
 build/
 dist/
+*.egg-info/
+*.egg
+*.manifest
+*.spec
+cc_apimodule.c
+cc_api-f2pywrappers2.f90
+
+# Virtual environments
+
+.env/
+.venv/
+env/
+venv/
+
+# Test/cache artifacts
+
 .pytest_cache/
+.cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Notebook checkpoints
+
+.ipynb_checkpoints/
+
+# IDE/editor clutter
+
+.vscode/
+.idea/
+
+# OS clutter
+
+.DS_Store
+Thumbs.db
+
+# Generated data/products
+
+data/
+plots/
+output/
+outputs/
+*.csv
+*.npz
+*.npy
+*.h5
+*.fits
+*.bin
+*.dat
+
+# Keep source examples visible by explicitly unignoring Python files
+
+!examples/*.py
+!demos/*.py
