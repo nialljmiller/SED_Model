@@ -1,5 +1,5 @@
 """
-custom_colours.forward
+sed_model.forward
 ======================
 Forward model: stellar parameters → SED + synthetic photometry.
 
@@ -13,7 +13,7 @@ Pipeline
                        →  ForwardResult
 
 All five physical parameters — Teff, logg, [M/H], Av, distance — can be
-fixed or free, described by a FitParams object (custom_colours.params).
+fixed or free, described by a FitParams object (sed_model.params).
 This shared vocabulary is what makes the module bidirectional: the inverse
 model unpacks a theta vector with FitParams.unpack and passes the result
 directly to run_forward.
@@ -58,7 +58,7 @@ def _get_cc_api():
     except ImportError as exc:
         raise ImportError(
             "The Fortran extension 'cc_api' is not built. "
-            "Run 'make' in the Custom_Colours root directory."
+            "Run 'make' in the SED_Model root directory."
         ) from exc
 
 

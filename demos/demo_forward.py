@@ -1,7 +1,7 @@
 """
 demo_forward.py
 ===============
-Demonstration of the Custom_Colours forward model.
+Demonstration of the SED_Model forward model.
 
 Given stellar parameters (Teff, logg, [M/H], R, d), produces:
   - The full interpolated SED
@@ -18,8 +18,8 @@ Edit the STELLAR PARAMETERS and DATA PATHS sections below to suit your setup.
 import numpy as np
 import matplotlib.pyplot as plt
 
-from custom_colours import load_grid, load_filters_from_instrument_dir, run_forward
-from custom_colours.io import save_sed, save_magnitudes
+from sed_model import load_grid, load_filters_from_instrument_dir, run_forward
+from sed_model.io import save_sed, save_magnitudes
 
 # =============================================================================
 # DATA PATHS  —  edit these

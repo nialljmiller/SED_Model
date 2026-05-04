@@ -1,5 +1,5 @@
 """
-custom_colours.grid
+sed_model.grid
 ===================
 Loads a SED_Tools-prepared stellar atmosphere grid (flux_cube.bin +
 lookup_table.csv) into memory and exposes the axes and flux array

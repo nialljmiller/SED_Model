@@ -1,5 +1,5 @@
 """
-Custom_Colours
+SED_Model
 ==============
 MESA-free synthetic photometry and stellar parameter inference.
 
@@ -8,7 +8,7 @@ Inverse model  observed magnitudes + uncertainties → posterior on (Teff, logg,
 
 Quick start
 -----------
->>> from custom_colours import load_grid, load_filters, run_forward, run_inverse
+>>> from sed_model import load_grid, load_filters, run_forward, run_inverse
 >>>
 >>> grid    = load_grid("/path/to/Kurucz2003all/")
 >>> filters = load_filters(["/path/to/filters/GAIA/G.dat",
@@ -31,12 +31,12 @@ Quick start
 >>> posterior.print_summary()
 >>>
 >>> # Extinction (optional, applied in the forward model)
->>> from custom_colours import ExtinctionModel, make_extinction_model
+>>> from sed_model import ExtinctionModel, make_extinction_model
 >>> ext = make_extinction_model(enabled=True, law='fitzpatrick99', a_v=0.3)
 >>> result = run_forward(..., extinction=ext)
 >>>
 >>> # Parameter modes for the inverse model
->>> from custom_colours import FitParams, fit_params_from_grid, fixed, free
+>>> from sed_model import FitParams, fit_params_from_grid, fixed, free
 >>> params = fit_params_from_grid(grid, a_v=(0.0, 2.0))  # Av free
 >>> posterior = run_inverse(..., fit_params=params)
 """

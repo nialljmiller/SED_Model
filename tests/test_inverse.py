@@ -1,7 +1,7 @@
 """
 tests/test_inverse.py
 =====================
-Tests for custom_colours.inverse (photometry -> stellar parameters).
+Tests for sed_model.inverse (photometry -> stellar parameters).
 
 Strategy
 --------
@@ -56,7 +56,7 @@ D_10PC = 3.0857e19
 
 def _cc_api_available():
     try:
-        from custom_colours import cc_api  # noqa: F401
+        from sed_model import cc_api  # noqa: F401
         return True
     except ImportError:
         return False
@@ -80,13 +80,13 @@ requires_filters = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def grid():
-    from custom_colours import load_grid
+    from sed_model import load_grid
     return load_grid(KURUCZ_DIR)
 
 
 @pytest.fixture(scope="module")
 def filters():
-    from custom_colours import load_filters_from_instrument_dir
+    from sed_model import load_filters_from_instrument_dir
     vega = VEGA_SED if os.path.isfile(VEGA_SED) else None
     return load_filters_from_instrument_dir(JOHNSON_DIR, vega_sed_path=vega)
 
@@ -94,7 +94,7 @@ def filters():
 @pytest.fixture(scope="module")
 def solar_obs(grid, filters):
     """Synthetic solar observations with 0.01 mag Gaussian noise."""
-    from custom_colours import run_forward
+    from sed_model import run_forward
     TRUE_TEFF = 5778.0
     TRUE_LOGG = 4.44
     TRUE_META = 0.0
@@ -132,7 +132,7 @@ def solar_obs(grid, filters):
 class TestInverseSmoke:
 
     def test_returns_inverse_result(self, grid, filters, solar_obs):
-        from custom_colours import run_inverse, InverseResult
+        from sed_model import run_inverse, InverseResult
         result = run_inverse(
             obs_magnitudes=solar_obs["obs_magnitudes"],
             obs_uncertainties=solar_obs["obs_uncertainties"],
@@ -146,7 +146,7 @@ class TestInverseSmoke:
         assert isinstance(result, InverseResult)
 
     def test_samples_shape(self, grid, filters, solar_obs):
-        from custom_colours import run_inverse
+        from sed_model import run_inverse
         result = run_inverse(
             obs_magnitudes=solar_obs["obs_magnitudes"],
             obs_uncertainties=solar_obs["obs_uncertainties"],
@@ -163,7 +163,7 @@ class TestInverseSmoke:
         assert result.log_prob.shape == (expected_samples,)
 
     def test_acceptance_fraction_reasonable(self, grid, filters, solar_obs):
-        from custom_colours import run_inverse
+        from sed_model import run_inverse
         result = run_inverse(
             obs_magnitudes=solar_obs["obs_magnitudes"],
             obs_uncertainties=solar_obs["obs_uncertainties"],
@@ -202,7 +202,7 @@ class TestPosteriorRecovery:
 
     @pytest.fixture(scope="class")
     def posterior(self, grid, filters, solar_obs):
-        from custom_colours import run_inverse
+        from sed_model import run_inverse
         return run_inverse(
             obs_magnitudes=solar_obs["obs_magnitudes"],
             obs_uncertainties=solar_obs["obs_uncertainties"],
@@ -272,7 +272,7 @@ class TestInverseResultAPI:
 
     @pytest.fixture(scope="class")
     def result(self, grid, filters, solar_obs):
-        from custom_colours import run_inverse
+        from sed_model import run_inverse
         return run_inverse(
             obs_magnitudes=solar_obs["obs_magnitudes"],
             obs_uncertainties=solar_obs["obs_uncertainties"],
@@ -311,7 +311,7 @@ class TestInverseResultAPI:
             result.save(path)
             assert os.path.isfile(path)
 
-            from custom_colours import InverseResult
+            from sed_model import InverseResult
             loaded = InverseResult.load(path)
 
         np.testing.assert_array_equal(result.samples, loaded.samples)
@@ -334,7 +334,7 @@ class TestInverseResultAPI:
             assert os.path.isfile(path + ".npz")
 
     def test_thinning_reduces_samples(self, grid, filters, solar_obs):
-        from custom_colours import run_inverse
+        from sed_model import run_inverse
         r1 = run_inverse(
             obs_magnitudes=solar_obs["obs_magnitudes"],
             obs_uncertainties=solar_obs["obs_uncertainties"],
@@ -364,7 +364,7 @@ class TestInverseResultAPI:
 class TestInverseValidation:
 
     def test_mismatched_lengths_raises(self, grid, filters):
-        from custom_colours import run_inverse
+        from sed_model import run_inverse
         filter_names = [filters[0].name]
         with pytest.raises(ValueError, match="filter_names"):
             run_inverse(
@@ -378,7 +378,7 @@ class TestInverseValidation:
             )
 
     def test_zero_uncertainty_raises(self, grid, filters):
-        from custom_colours import run_inverse
+        from sed_model import run_inverse
         with pytest.raises(ValueError, match="positive"):
             run_inverse(
                 obs_magnitudes=[5.0],
@@ -391,7 +391,7 @@ class TestInverseValidation:
             )
 
     def test_unknown_filter_name_raises(self, grid, filters):
-        from custom_colours import run_inverse
+        from sed_model import run_inverse
         with pytest.raises(ValueError, match="not in the supplied filters"):
             run_inverse(
                 obs_magnitudes=[5.0],

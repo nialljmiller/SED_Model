@@ -1,7 +1,7 @@
 """
 demo_param_modes.py
 ===================
-Demonstrates the three parameter modes available in the Custom_Colours
+Demonstrates the three parameter modes available in the SED_Model
 inverse model: fixed, bounded (free with limits), and fully open (free
 with grid-wide bounds).
 
@@ -33,7 +33,7 @@ Usage
 -----
     python demo_param_modes.py
 
-Requirements: custom_colours built (make), emcee, sed_extinction.py on path.
+Requirements: sed_model built (make), emcee, sed_extinction.py on path.
 """
 
 from __future__ import annotations
@@ -43,11 +43,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
-from custom_colours import (
+from sed_model import (
     load_grid, load_filters_from_instrument_dir,
     run_forward, run_inverse,
 )
-from custom_colours.params import (
+from sed_model.params import (
     FitParams, ParamSpec, fit_params_from_grid,
     fixed, free, PC_TO_CM,
 )
@@ -103,7 +103,7 @@ print(f"  {len(filters)} filters: {filter_names}")
 # =============================================================================
 
 try:
-    from custom_colours import make_extinction_model
+    from sed_model import make_extinction_model
     true_ext = make_extinction_model(
         enabled=True, law="fitzpatrick99", a_v=TRUE_AV, r_v=3.1
     )
@@ -139,7 +139,7 @@ for n, tm, om in zip(filter_names, [fwd_truth.magnitudes[n] for n in filter_name
 
 def _ext(av):
     """Return an ExtinctionModel with Fitzpatrick99 at the given Av, or None."""
-    from custom_colours import make_extinction_model
+    from sed_model import make_extinction_model
     return make_extinction_model(enabled=True, law="fitzpatrick99",
                                  a_v=av, r_v=3.1)
 

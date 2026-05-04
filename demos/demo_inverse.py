@@ -1,7 +1,7 @@
 """
 demo_inverse.py
 ===============
-Demonstration of the Custom_Colours inverse model.
+Demonstration of the SED_Model inverse model.
 
 Given observed magnitudes (with uncertainties) in a set of filters,
 recovers the posterior distribution on (Teff, logg, [M/H]) via MCMC.
@@ -18,7 +18,7 @@ works out of the box.  Replace the OBS_* arrays with your real data.
 import numpy as np
 import matplotlib.pyplot as plt
 
-from custom_colours import (
+from sed_model import (
     load_grid, load_filters_from_instrument_dir,
     run_forward, run_inverse, InverseResult,
 )
