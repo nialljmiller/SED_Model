@@ -1,5 +1,5 @@
 """
-custom_colours.params
+sed_model.params
 =====================
 Shared parameter definitions used by both the forward and inverse models.
 
@@ -37,7 +37,7 @@ Usage
 -----
 ::
 
-    from custom_colours.params import ParamSpec, FitParams, fixed, free
+    from sed_model.params import ParamSpec, FitParams, fixed, free
 
     params = FitParams(
         teff = free(4000, 8000),

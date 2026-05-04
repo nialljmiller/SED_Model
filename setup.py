@@ -9,12 +9,12 @@ from setuptools.command.build_ext import build_ext
 
 class F2pyBuildExt(build_ext):
     def build_extension(self, ext):
-        if ext.name != "custom_colours.cc_api":
+        if ext.name != "sed_model.cc_api":
             super().build_extension(ext)
             return
 
         src_dir = os.path.abspath(os.path.dirname(__file__))
-        pkg_dir = os.path.join(src_dir, "custom_colours")
+        pkg_dir = os.path.join(src_dir, "sed_model")
 
         # Ensure meson/ninja installed in the build env are on PATH.
         # pip installs them alongside the Python executable.
@@ -54,6 +54,6 @@ class F2pyBuildExt(build_ext):
 
 
 setup(
-    ext_modules=[Extension("custom_colours.cc_api", sources=[])],
+    ext_modules=[Extension("sed_model.cc_api", sources=[])],
     cmdclass={"build_ext": F2pyBuildExt},
 )

@@ -1,10 +1,10 @@
 """
-custom_colours.inverse
+sed_model.inverse
 ======================
 Inverse model: observed magnitudes → posterior on stellar parameters.
 
 The inverse model is the mirror of the forward model.  Both share the same
-``FitParams`` object (from ``custom_colours.params``) which declares each
+``FitParams`` object (from ``sed_model.params``) which declares each
 physical parameter as fixed or free.  The MCMC samples only the free
 parameters; fixed ones are threaded to the forward model unchanged.
 
@@ -26,8 +26,8 @@ by a ``ParamSpec`` inside a ``FitParams``.  Three behaviours:
 
 The simplest use::
 
-    from custom_colours import run_inverse
-    from custom_colours.params import fit_params_from_grid, PC_TO_CM
+    from sed_model import run_inverse
+    from sed_model.params import fit_params_from_grid, PC_TO_CM
 
     params = fit_params_from_grid(grid)                # Teff/logg/meta free
     result = run_inverse(obs_mags, obs_errs, filter_names,

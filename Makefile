@@ -3,7 +3,7 @@ F2PY    ?= f2py
 FFLAGS  := -O2 -fPIC -Wall
 
 # Output extension lands in the Python package directory
-OUTDIR  := custom_colours
+OUTDIR  := sed_model
 
 .PHONY: all clean
 

@@ -1,7 +1,7 @@
 ! ***********************************************************************
 ! cc_kernels.f90
 !
-! MESA-free numerical kernels for Custom_Colours.
+! MESA-free numerical kernels for SED_Model.
 ! Ported from colors/private/{hermite_interp,linear_interp,
 !   colors_utils,synthetic,bolometric}.f90 with all MESA-specific
 ! types, handle infrastructure, and I/O removed.

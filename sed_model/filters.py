@@ -1,5 +1,5 @@
 """
-custom_colours.filters
+sed_model.filters
 ======================
 Loads photometric filter transmission curves from SED_Tools-prepared
 ``.dat`` files and precomputes Vega, AB, and ST zero-points using the

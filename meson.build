@@ -1,5 +1,5 @@
 project(
-  'custom_colours',
+  'sed_model',
   'c', 'fortran',
   version: '0.1.0',
   meson_version: '>=1.1.0',
@@ -26,7 +26,7 @@ py.extension_module(
   ],
   include_directories: [np_inc, f2py_inc],
   dependencies: py.dependency(),
-  subdir: 'custom_colours',
+  subdir: 'sed_model',
   install: true,
   fortran_args: ['-O2', '-fPIC'],
   c_args: ['-O2', '-fPIC'],

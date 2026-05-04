@@ -19,7 +19,7 @@ Usage
 -----
     python extinction_prescription_comparison.py
 
-Requirements: custom_colours built (make), emcee.
+Requirements: sed_model built (make), emcee.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
-from custom_colours import (
+from sed_model import (
     load_grid, load_filters,
     run_forward, run_inverse,
     ExtinctionModel, make_extinction_model, AVAILABLE_LAWS,

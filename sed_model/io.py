@@ -1,7 +1,7 @@
 """
-custom_colours.io
+sed_model.io
 =================
-Result containers and persistence for Custom_Colours outputs.
+Result containers and persistence for SED_Model outputs.
 
 InverseResult
     Holds the full emcee sampler output, summary statistics, and the
@@ -120,7 +120,7 @@ class InverseResult:
         s = self.summary()
         teff_map, logg_map, meta_map = self.map_estimate()
         print(f"\n{'─'*52}")
-        print(f"  Custom_Colours  —  Posterior Summary")
+        print(f"  SED_Model  —  Posterior Summary")
         print(f"{'─'*52}")
         print(f"  Filters : {', '.join(self.filter_names)}")
         print(f"  System  : {self.mag_system}")
@@ -241,7 +241,7 @@ def save_sed(result: ForwardResult, path: str | Path) -> None:
     """
     path = Path(path)
     header = (
-        f"# Custom_Colours SED output\n"
+        f"# SED_Model SED output\n"
         f"# Teff={result.teff:.1f} K  logg={result.logg:.3f}  "
         f"[M/H]={result.meta:.3f}\n"
         f"# R={result.R:.4e} cm  d={result.d:.4e} cm\n"
@@ -267,7 +267,7 @@ def save_magnitudes(result: ForwardResult, path: str | Path) -> None:
     """
     path = Path(path)
     lines = [
-        "# Custom_Colours synthetic photometry",
+        "# SED_Model synthetic photometry",
         f"# Teff={result.teff:.1f} K  logg={result.logg:.3f}  "
         f"[M/H]={result.meta:.3f}  system={result.mag_system}",
         "# filter_name, magnitude, band_flux_erg_s_cm2_AA",

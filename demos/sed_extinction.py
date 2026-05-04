@@ -1,13 +1,13 @@
 """
-custom_colours.sed_extinction
+sed_model.sed_extinction
 ==============================
-Interstellar dust extinction module for Custom_Colours SED fitting.
+Interstellar dust extinction module for SED_Model SED fitting.
 
-This file lives inside the ``custom_colours`` package and is exposed
+This file lives inside the ``sed_model`` package and is exposed
 through the package's top-level namespace.  Import from either place:
 
-    from custom_colours import ExtinctionModel, make_extinction_model
-    from custom_colours.sed_extinction import fitzpatrick99  # individual law
+    from sed_model import ExtinctionModel, make_extinction_model
+    from sed_model.sed_extinction import fitzpatrick99  # individual law
 
 The file is kept separate from the other modules for ease of maintenance
 and because it has no dependency on the Fortran extension — it is pure NumPy
@@ -22,7 +22,7 @@ Usage
 -----
 Apply extinction inside the forward model::
 
-    from custom_colours import make_extinction_model, run_forward
+    from sed_model import make_extinction_model, run_forward
 
     ext = make_extinction_model(enabled=True, law='fitzpatrick99',
                                 a_v=0.3, r_v=3.1)
@@ -33,7 +33,7 @@ Apply extinction inside the forward model::
 
 Use directly on a spectrum::
 
-    from custom_colours import ExtinctionModel
+    from sed_model import ExtinctionModel
 
     ext = ExtinctionModel(enabled=True, law='fitzpatrick99',
                           a_v=0.3, r_v=3.1)
@@ -72,7 +72,7 @@ the MCMC.  To make Av a free parameter, declare it as such in ``FitParams``
 and pass an enabled ``ExtinctionModel``; the forward model will override
 the stored ``a_v`` with the value from the theta vector at each step::
 
-    from custom_colours import FitParams, ParamSpec, make_extinction_model
+    from sed_model import FitParams, ParamSpec, make_extinction_model
 
     params = FitParams(
         teff = ParamSpec('teff', 'free', lo=4000, hi=8000),
@@ -901,7 +901,7 @@ def make_extinction_model(
     This is the recommended way to build an extinction model for use with
     ``run_forward`` or ``run_inverse``, e.g.::
 
-        from custom_colours import make_extinction_model, run_forward
+        from sed_model import make_extinction_model, run_forward
 
         ext = make_extinction_model(enabled=True, law='fitzpatrick99',
                                     a_v=0.3, r_v=3.1)
