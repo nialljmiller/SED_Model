@@ -1,6 +1,10 @@
-# SED_Model
+<p align="center">
+  <img src="docs/SED_Model_Logo.png" alt="SED_Model Logo" width="200"/>
+</p>
 
-**MESA-free synthetic photometry and stellar parameter inference.**
+<h1 align="center">SED_Model</h1>
+
+**Synthetic photometry and stellar parameter inference.**
 
 SED_Model is a Python package for computing observer-ready synthetic spectral energy distributions (SEDs) and broadband magnitudes from stellar atmosphere grids, and for recovering stellar parameters from observed photometry via Bayesian MCMC inference. It is designed to work directly downstream of `SED_Tools` and as a standalone drop-in for workflows that use MESA-style atmosphere grids and filter transmission curves.
 
