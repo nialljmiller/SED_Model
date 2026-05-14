@@ -275,12 +275,25 @@ def run_inverse(
         )
 
     # ------------------------------------------------------------------
+    # Build a default extinction model if Av is active but the caller did
+    # not provide one.
+    # ------------------------------------------------------------------
+    av_active = fit_params.a_v.is_free or (fit_params.a_v.is_fixed and fit_params.a_v.value > 0.0)
+    if extinction is None and av_active:
+        from .sed_extinction import make_extinction_model
+        extinction = make_extinction_model(
+            enabled=True,
+            law=extinction_law or 'fitzpatrick99',
+            a_v=0.0 if fit_params.a_v.is_free else fit_params.a_v.value,
+        )
+
+    # ------------------------------------------------------------------
     # Log what is being sampled vs fixed
     # ------------------------------------------------------------------
     print(fit_params.summary())
     if extinction is not None and getattr(extinction.config, 'enabled', False):
         cfg = extinction.config
-        av_mode = "free (sampled)" if fit_params.a_v.is_free else f"fixed={cfg.a_v:.3f}"
+        av_mode = "free (sampled)" if fit_params.a_v.is_free else f"fixed={fit_params.a_v.value:.3f}"
         print(
             f"[inverse] Extinction: law={cfg.law}, Rv={cfg.r_v:.2f}, "
             f"Av {av_mode}"
@@ -336,6 +349,8 @@ def run_inverse(
     flat_samples  = sampler.get_chain(discard=n_burn, thin=n_thin, flat=True)
     flat_log_prob = sampler.get_log_prob(discard=n_burn, thin=n_thin, flat=True)
 
+    fixed_params = {name: fit_params._spec(name).value for name in fit_params.fixed_names}
+
     return InverseResult(
         samples=flat_samples,
         log_prob=flat_log_prob,
@@ -351,4 +366,6 @@ def run_inverse(
         n_thin=n_thin,
         acceptance_fraction=acc,
         autocorr_time=tau,
+        param_names=list(fit_params.free_names),
+        fixed_params=fixed_params,
     )

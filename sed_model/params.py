@@ -350,61 +350,76 @@ class FitParams:
 # Grid-aware constructor
 # ---------------------------------------------------------------------------
 
+def _spec_from_user_value(
+    name: str,
+    value: Union[float, Tuple[float, float], ParamSpec, None],
+    default: ParamSpec,
+) -> ParamSpec:
+    """Convert a user-friendly value into a ParamSpec.
+
+    Accepted forms:
+      - None      -> use the supplied default
+      - float     -> fixed(value)
+      - (lo, hi)  -> free(lo, hi)
+      - ParamSpec -> use directly, stamping name if blank
+    """
+    if value is None:
+        return default
+
+    if isinstance(value, ParamSpec):
+        if not value.name:
+            object.__setattr__(value, 'name', name)
+        return value
+
+    if isinstance(value, (int, float)):
+        return fixed(float(value), name=name)
+
+    lo, hi = value
+    return free(float(lo), float(hi), name=name)
+
+
 def fit_params_from_grid(
     grid,
-    a_v:  Union[float, Tuple[float, float], None] = None,
-    d_cm: Union[float, Tuple[float, float], None] = None,
+    a_v:  Union[float, Tuple[float, float], ParamSpec, None] = None,
+    d_cm: Union[float, Tuple[float, float], ParamSpec, None] = None,
+    *,
+    teff: Union[float, Tuple[float, float], ParamSpec, None] = None,
+    logg: Union[float, Tuple[float, float], ParamSpec, None] = None,
+    meta: Union[float, Tuple[float, float], ParamSpec, None] = None,
 ) -> FitParams:
-    """Build a FitParams with Teff/logg/meta bounds taken from the grid.
+    """Build a FitParams from grid bounds plus optional user overrides.
 
-    Parameters
-    ----------
-    grid : AtmosphereGrid
-        The loaded atmosphere grid.  Teff, logg, and [M/H] are made free
-        with bounds matching the grid.
-    a_v : float, (lo, hi), or None
-        - float  → fixed Av
-        - (lo, hi) tuple → free Av over that range
-        - None   → fixed at 0.0 (no extinction, default)
-    d_cm : float, (lo, hi), or None
-        - float  → fixed distance in cm
-        - (lo, hi) tuple → free distance in cm over that range
-        - None   → fixed at 1 pc (default)
+    By default Teff/logg/[M/H] are free over the full grid, Av is fixed to
+    zero, and distance is fixed to 1 pc.  For any parameter, pass either a
+    float to fix it or a ``(lo, hi)`` tuple to sample it.
 
-    Returns
-    -------
-    FitParams
+    Examples
+    --------
+    Fit Teff/logg/meta, with Av fixed::
+
+        fit_params_from_grid(grid, a_v=0.3, d_cm=500*PC_TO_CM)
+
+    Fit only Teff and Av::
+
+        fit_params_from_grid(
+            grid,
+            teff=(5200, 6400),
+            logg=4.4,
+            meta=0.0,
+            a_v=(0.0, 1.5),
+            d_cm=500*PC_TO_CM,
+        )
     """
-    teff_spec = ParamSpec('teff', 'free',
-                          lo=float(grid.teff_bounds[0]),
-                          hi=float(grid.teff_bounds[1]))
-    logg_spec = ParamSpec('logg', 'free',
-                          lo=float(grid.logg_bounds[0]),
-                          hi=float(grid.logg_bounds[1]))
-    meta_spec = ParamSpec('meta', 'free',
-                          lo=float(grid.meta_bounds[0]),
-                          hi=float(grid.meta_bounds[1]))
-
-    if a_v is None:
-        av_spec = ParamSpec('a_v', 'fixed', value=0.0)
-    elif isinstance(a_v, (int, float)):
-        av_spec = ParamSpec('a_v', 'fixed', value=float(a_v))
-    else:
-        lo_av, hi_av = a_v
-        av_spec = ParamSpec('a_v', 'free', lo=float(lo_av), hi=float(hi_av))
-
-    if d_cm is None:
-        d_spec = ParamSpec('d', 'fixed', value=PC_TO_CM)
-    elif isinstance(d_cm, (int, float)):
-        d_spec = ParamSpec('d', 'fixed', value=float(d_cm))
-    else:
-        lo_d, hi_d = d_cm
-        d_spec = ParamSpec('d', 'free', lo=float(lo_d), hi=float(hi_d))
+    teff_default = free(grid.teff_bounds[0], grid.teff_bounds[1], name='teff')
+    logg_default = free(grid.logg_bounds[0], grid.logg_bounds[1], name='logg')
+    meta_default = free(grid.meta_bounds[0], grid.meta_bounds[1], name='meta')
+    av_default   = fixed(0.0, name='a_v')
+    d_default    = fixed(PC_TO_CM, name='d')
 
     return FitParams(
-        teff=teff_spec,
-        logg=logg_spec,
-        meta=meta_spec,
-        a_v=av_spec,
-        d=d_spec,
+        teff=_spec_from_user_value('teff', teff, teff_default),
+        logg=_spec_from_user_value('logg', logg, logg_default),
+        meta=_spec_from_user_value('meta', meta, meta_default),
+        a_v=_spec_from_user_value('a_v', a_v, av_default),
+        d=_spec_from_user_value('d', d_cm, d_default),
     )

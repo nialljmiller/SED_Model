@@ -66,36 +66,37 @@ class InverseResult:
         None if estimation failed (chain too short).
     """
 
-    samples:            np.ndarray        # (n_samples, 3)
-    log_prob:           np.ndarray        # (n_samples,)
-    filter_names:       list[str]
-    obs_magnitudes:     np.ndarray        # (n_filters,)
-    obs_uncertainties:  np.ndarray        # (n_filters,)
-    R:                  float
-    d:                  float
-    mag_system:         str
-    n_walkers:          int
-    n_steps:            int
-    n_burn:             int
-    n_thin:             int
-    acceptance_fraction: np.ndarray       # (n_walkers,)
-    autocorr_time:      Optional[np.ndarray] = None
+    samples:             np.ndarray        # (n_samples, n_free)
+    log_prob:            np.ndarray        # (n_samples,)
+    filter_names:        list[str]
+    obs_magnitudes:      np.ndarray        # (n_filters,)
+    obs_uncertainties:   np.ndarray        # (n_filters,)
+    R:                   float
+    d:                   float
+    mag_system:          str
+    n_walkers:           int
+    n_steps:             int
+    n_burn:              int
+    n_thin:              int
+    acceptance_fraction: np.ndarray        # (n_walkers,)
+    autocorr_time:       Optional[np.ndarray] = None
+    param_names:         list[str] = field(default_factory=lambda: ["teff", "logg", "meta"])
+    fixed_params:        dict[str, float] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # Summary statistics
     # ------------------------------------------------------------------
 
     def summary(self) -> dict[str, dict[str, float]]:
-        """Return median and 1-sigma credible interval for each parameter.
+        """Return median and 1-sigma credible interval for each sampled parameter."""
+        if len(self.param_names) != self.samples.shape[1]:
+            raise ValueError(
+                f"param_names has {len(self.param_names)} entries but samples has "
+                f"{self.samples.shape[1]} columns"
+            )
 
-        Returns
-        -------
-        dict with keys 'teff', 'logg', 'meta', each mapping to
-        {'median', 'lo', 'hi', 'lower_1sigma', 'upper_1sigma'}.
-        """
-        labels = ["teff", "logg", "meta"]
         result = {}
-        for i, label in enumerate(labels):
+        for i, label in enumerate(self.param_names):
             col = self.samples[:, i]
             med = float(np.percentile(col, 50))
             lo  = float(np.percentile(col, 15.865))
@@ -109,41 +110,52 @@ class InverseResult:
             }
         return result
 
-    def map_estimate(self) -> tuple[float, float, float]:
-        """Return the maximum a-posteriori (MAP) sample as (teff, logg, meta)."""
+    def map_estimate(self) -> dict[str, float]:
+        """Return the maximum a-posteriori sample as a {parameter: value} dict."""
         idx = int(np.argmax(self.log_prob))
         s = self.samples[idx]
-        return float(s[0]), float(s[1]), float(s[2])
+        return {name: float(s[i]) for i, name in enumerate(self.param_names)}
 
     def print_summary(self) -> None:
-        """Print a formatted parameter summary to stdout."""
+        """Print a formatted parameter summary for arbitrary free parameters."""
         s = self.summary()
-        teff_map, logg_map, meta_map = self.map_estimate()
-        print(f"\n{'─'*52}")
-        print(f"  SED_Model  —  Posterior Summary")
-        print(f"{'─'*52}")
+        map_params = self.map_estimate()
+        labels = {
+            "teff": "Teff   [K]",
+            "logg": "logg      ",
+            "meta": "[M/H]     ",
+            "a_v":  "Av    [mag]",
+            "d":    "d      [cm]",
+        }
+
+        print(f"\n{'─'*60}")
+        print("  SED_Model  —  Posterior Summary")
+        print(f"{'─'*60}")
         print(f"  Filters : {', '.join(self.filter_names)}")
         print(f"  System  : {self.mag_system}")
+        print(f"  Sampled : {', '.join(self.param_names)}")
+        if self.fixed_params:
+            fixed = ', '.join(f"{k}={v:.6g}" for k, v in self.fixed_params.items())
+            print(f"  Fixed   : {fixed}")
         print(f"  Samples : {len(self.samples)} "
               f"(walkers={self.n_walkers}, steps={self.n_steps}, "
               f"burn={self.n_burn}, thin={self.n_thin})")
         af_mean = float(np.mean(self.acceptance_fraction))
         print(f"  Mean acceptance fraction : {af_mean:.3f}")
         if self.autocorr_time is not None:
-            print(f"  Autocorr times (Teff/logg/meta) : "
-                  f"{self.autocorr_time[0]:.1f} / "
-                  f"{self.autocorr_time[1]:.1f} / "
-                  f"{self.autocorr_time[2]:.1f}")
-        print(f"{'─'*52}")
-        for param, label in [("teff", "Teff   [K]"),
-                               ("logg", "logg      "),
-                               ("meta", "[M/H]     ")]:
+            tau = ' / '.join(f"{x:.1f}" for x in np.ravel(self.autocorr_time))
+            print(f"  Autocorr times : {tau}")
+
+        print(f"{'─'*60}")
+        for param in self.param_names:
             v = s[param]
-            print(f"  {label} :  {v['median']:>10.3f}"
+            label = labels.get(param, param)
+            print(f"  {label:<12s} :  {v['median']:>10.3f}"
                   f"  +{v['upper_1sigma']:.3f}  -{v['lower_1sigma']:.3f}")
-        print(f"\n  MAP : Teff={teff_map:.0f} K, "
-              f"logg={logg_map:.3f}, [M/H]={meta_map:.3f}")
-        print(f"{'─'*52}\n")
+
+        map_text = ', '.join(f"{k}={v:.6g}" for k, v in map_params.items())
+        print(f"\n  MAP : {map_text}")
+        print(f"{'─'*60}\n")
 
     # ------------------------------------------------------------------
     # Persistence
@@ -170,6 +182,8 @@ class InverseResult:
             "n_steps":         self.n_steps,
             "n_burn":          self.n_burn,
             "n_thin":          self.n_thin,
+            "param_names":     self.param_names,
+            "fixed_params":    self.fixed_params,
         }
 
         arrays = dict(
@@ -222,6 +236,8 @@ class InverseResult:
             n_thin=int(meta["n_thin"]),
             acceptance_fraction=data["acceptance_fraction"],
             autocorr_time=autocorr,
+            param_names=meta.get("param_names", ["teff", "logg", "meta"]),
+            fixed_params=meta.get("fixed_params", {}),
         )
 
 

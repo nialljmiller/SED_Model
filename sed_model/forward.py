@@ -247,10 +247,13 @@ def run_forward(
     # ------------------------------------------------------------------
     extinction_applied = False
     if extinction is not None and getattr(extinction.config, 'enabled', False):
-        if fit_params is not None and fit_params.a_v.is_free:
+        if fit_params is not None:
             from dataclasses import replace as _replace
-            new_cfg   = _replace(extinction.config, a_v=av)
-            from sed_extinction import ExtinctionModel as _EM
+            from .sed_extinction import ExtinctionModel as _EM
+            # In FitParams mode, FitParams is the source of truth for Av,
+            # whether Av is fixed or free.  This prevents the fixed Av in
+            # FitParams and the Av stored in ExtinctionModel from drifting apart.
+            new_cfg = _replace(extinction.config, a_v=av)
             extinction = _EM(new_cfg)
 
         observed_flux      = extinction.apply(wavelengths, observed_flux)
