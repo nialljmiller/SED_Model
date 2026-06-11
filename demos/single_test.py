@@ -1,23 +1,23 @@
 """
-extinction_prescription_comparison.py
-======================================
-Demonstrates how different extinction laws affect the inverse fit.
+single_test.py
+==============
+Single inverse fit against synthetic observations reddened with the
+Gordon et al. (2023) MW extinction law.
 
 Scenario
 --------
-We have a star at 500 pc with genuine Av=0.8 reddening.  We generate
-synthetic observed magnitudes from the forward model using Fitzpatrick99
-(the "truth"), then re-fit it six times — once per prescription — and
-compare how well each one recovers the true Teff, logg, and [M/H].
+A solar-type star at 500 pc with Av=0.8 (Gordon+2023, MW average) is
+forward-modelled in three Gaia bands to generate synthetic observed
+magnitudes, then re-fitted once with the same prescription.  Useful as
+a quick end-to-end check that the forward → inverse round trip recovers
+the true Teff, logg, and [M/H].
 
-This is also useful as a sensitivity test: if all six prescriptions
-agree on the posterior, the photometry data is not constraining Av much
-and the choice of law doesn't matter.  If they disagree, you need to
-think about which is appropriate for your sight line.
+For the multi-prescription comparison, see
+``extinction_prescription_comparison.py``.
 
 Usage
 -----
-    python extinction_prescription_comparison.py
+    python single_test.py
 
 Requirements: sed_model built (make), emcee.
 """
@@ -28,12 +28,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
+
 from sed_model import (
     load_grid, load_filters,
     run_forward, run_inverse,
-    ExtinctionModel, make_extinction_model, AVAILABLE_LAWS,
+    make_extinction_model,
+    fit_params_from_grid,
     InverseResult,
 )
+
 
 import os
 
@@ -149,14 +152,23 @@ def main():
 
     ext_model = make_extinction_model(**ext_kwargs)
 
+    fit_params = fit_params_from_grid(
+        grid,
+        teff=(5200.0, 6400.0),
+        logg=(3.8, 5.0),
+        meta=(-0.5, 0.5),
+        a_v=(0.0, 1.5),
+        d_cm=(200.0 * PC_TO_CM, 1000.0 * PC_TO_CM),
+    )
+
     posterior = run_inverse(
         obs_magnitudes=obs_mags,
         obs_uncertainties=obs_errs,
         filter_names=filter_names,
         R=TRUE_R,
-        d=TRUE_D,
         grid=grid,
         filters=filters,
+        fit_params=fit_params,
         mag_system=MAG_SYSTEM,
         extinction=ext_model,
         n_walkers=N_WALKERS,

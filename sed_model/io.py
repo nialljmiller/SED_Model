@@ -34,9 +34,10 @@ class InverseResult:
 
     Attributes
     ----------
-    samples : ndarray, shape (n_samples, 3)
+    samples : ndarray, shape (n_samples, n_free)
         Flattened posterior samples after burn-in.
-        Columns: Teff (K), logg, [M/H].
+        Columns follow ``param_names`` (the free parameters in canonical
+        order: teff, logg, meta, a_v, d — skipping fixed ones).
     log_prob : ndarray, shape (n_samples,)
         Log-posterior value for each sample.
     filter_names : list of str
@@ -61,7 +62,7 @@ class InverseResult:
         Thinning factor applied to the chain.
     acceptance_fraction : ndarray, shape (n_walkers,)
         Per-walker acceptance fraction.
-    autocorr_time : ndarray or None, shape (3,)
+    autocorr_time : ndarray or None, shape (n_free,)
         Estimated integrated autocorrelation time for each parameter.
         None if estimation failed (chain too short).
     """

@@ -296,11 +296,11 @@ class TestInverseResultAPI:
         for key in ("teff", "logg", "meta"):
             assert s[key]["lo"] <= s[key]["median"] <= s[key]["hi"]
 
-    def test_map_estimate_returns_triple(self, result):
-        teff, logg, meta = result.map_estimate()
-        assert np.isfinite(teff)
-        assert np.isfinite(logg)
-        assert np.isfinite(meta)
+    def test_map_estimate_returns_finite_params(self, result):
+        map_params = result.map_estimate()
+        assert set(map_params) == {"teff", "logg", "meta"}
+        for name, value in map_params.items():
+            assert np.isfinite(value), f"MAP {name} is not finite"
 
     def test_print_summary_runs(self, result):
         result.print_summary()  # should not raise

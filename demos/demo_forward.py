@@ -129,11 +129,12 @@ ax.legend(loc="upper right")
 ax.grid(True, alpha=0.3)
 
 # Mark filter pivot wavelengths
+_trapezoid = getattr(np, "trapezoid", np.trapezoid)   # NumPy 2.x / 1.x compatibility
 colors_cycle = plt.cm.tab10(np.linspace(0, 1, len(filters)))
 for filt, col in zip(filters, colors_cycle):
-    pivot = np.trapezoid(filt.wavelengths * filt.transmission,
-                         filt.wavelengths) / \
-            np.trapezoid(filt.transmission, filt.wavelengths)
+    pivot = _trapezoid(filt.wavelengths * filt.transmission,
+                   filt.wavelengths) / \
+            _trapezoid(filt.transmission, filt.wavelengths)
     pivot_um = pivot / 1e4
     if 0.3 < pivot_um < 2.5:
         ax.axvline(pivot_um, color=col, alpha=0.5, lw=0.8, ls="--")

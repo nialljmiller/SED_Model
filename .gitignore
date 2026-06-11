@@ -35,6 +35,10 @@ venv/
 .coverage
 htmlcov/
 
+# Documentation build output (mkdocs)
+
+site/
+
 # Notebook checkpoints
 
 .ipynb_checkpoints/

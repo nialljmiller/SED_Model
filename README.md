@@ -8,7 +8,9 @@
 
 SED_Model is a Python package for computing observer-ready synthetic spectral energy distributions (SEDs) and broadband magnitudes from stellar atmosphere grids, and for recovering stellar parameters from observed photometry via Bayesian MCMC inference. It is designed to work directly downstream of `SED_Tools` and as a standalone drop-in for workflows that use MESA-style atmosphere grids and filter transmission curves.
 
-Version: `0.1.0`
+Version: `0.1.7`
+
+**Documentation:** https://nialljmiller.github.io/SED_Model/
 
 ---
 
@@ -358,6 +360,16 @@ A typical workflow is:
 SED_Tools  ->  build/download SED grids and filters
 SED_Model  ->  generate synthetic magnitudes and infer stellar parameters
 ```
+
+---
+
+## Documentation and Demos
+
+Full documentation, including walkthroughs of every demo script in `demos/`, lives at:
+
+https://nialljmiller.github.io/SED_Model/
+
+The site is built with MkDocs from the `docs/` directory and embeds the demo sources directly, so the documented examples are always identical to the code in this repository.
 
 ---
 

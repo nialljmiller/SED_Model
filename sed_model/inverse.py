@@ -13,8 +13,8 @@ This bidirectionality is concrete, not cosmetic:
   - The inverse model maps magnitudes → ``FitParams`` + posterior on theta.
   - The same ``FitParams`` instance flows in both directions.
 
-Parameters
-----------
+Parameter modes
+---------------
 Every physical quantity — Teff, logg, [M/H], Av, distance — is described
 by a ``ParamSpec`` inside a ``FitParams``.  Three behaviours:
 
@@ -23,6 +23,9 @@ by a ``ParamSpec`` inside a ``FitParams``.  Three behaviours:
 
 ``free(lo, hi)``
     Sampled by MCMC with a flat prior over [lo, hi].
+
+``bounded(lo, hi)``
+    Alias for ``free`` — use it to be explicit about hard limits.
 
 The simplest use::
 

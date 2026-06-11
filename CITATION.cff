@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "SED_Model"
+abstract: "Synthetic photometry and stellar parameter inference: forward modelling of spectral energy distributions from stellar atmosphere grids, and Bayesian MCMC recovery of stellar parameters from observed photometry."
+authors:
+  - family-names: "Miller"
+    given-names: "Niall"
+    email: "niall.j.miller@gmail.com"
+version: "0.1.7"
+repository-code: "https://github.com/nialljmiller/SED_Model"
+url: "https://nialljmiller.github.io/SED_Model/"
+license: MIT

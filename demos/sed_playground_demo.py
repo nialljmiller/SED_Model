@@ -81,7 +81,7 @@ TRUE_STAR = {
 }
 
 OBS_SIGMA = 0.02          # fake magnitude uncertainty per band
-RANDOM_SEED = 42069
+RANDOM_SEED = 42
 
 # =============================================================================
 # 3. Inverse model playground: decide what the fitter is allowed to fit
@@ -102,11 +102,11 @@ RANDOM_SEED = 42069
 #       set all five to mode='fit', but expect degeneracies, especially Av--distance.
 
 FIT_CONFIG = {
-"teff": {"mode": "fit", "bounds": (4500, 7500), "start": 5800},
-"logg": {"mode": "fit", "bounds": (3.5, 5.0), "start": 4.4},
-"meta": {"mode": "fit", "bounds": (-1.0, 0.5), "start": 0.0},
-"a_v":  {"mode": "fit", "bounds": (0.0, 2.0), "start": 0.5},
-"d_pc": {"mode": "fit", "bounds": (100.0, 1500.0), "start": 500.0}
+    "teff": {"mode": "fit",   "bounds": (5200.0, 6400.0), "start": 5800.0},
+    "logg": {"mode": "fixed", "value": TRUE_STAR["logg"]},
+    "meta": {"mode": "fixed", "value": TRUE_STAR["meta"]},
+    "a_v":  {"mode": "fit",   "bounds": (0.0, 1.5), "start": 0.5},
+    "d_pc": {"mode": "fixed", "value": TRUE_STAR["distance_pc"]},
 }
 
 FIT_EXTINCTION = {
@@ -117,9 +117,9 @@ FIT_EXTINCTION = {
 }
 
 MCMC = {
-    "n_walkers": 12,
-    "n_steps": 150,
-    "n_burn": 40,
+    "n_walkers": 32,
+    "n_steps": 1500,
+    "n_burn": 400,
     "n_thin": 1,
     "p0_scatter": 0.02,
     "seed": 123,
@@ -246,17 +246,169 @@ def print_dynamic_summary(result, free_names, true_star):
         )
 
 
-def plot_sed(truth, path="sed_playground_sed.png"):
-    plt.figure(figsize=(8, 5))
-    plt.plot(truth.wavelengths, truth.observed_flux)
-    plt.xlabel("Wavelength [Å]")
-    plt.ylabel("Observed flux")
-    plt.title("Forward-model observed SED")
-    plt.tight_layout()
-    plt.show()
-    plt.savefig(path, dpi=180)
-    print(f"\nSaved SED plot: {path}")
+SHOW_PLOTS = False
 
+
+def plot_sed(truth, path="sed_playground_sed.png"):
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(truth.wavelengths, truth.observed_flux)
+    ax.set_xlabel("Wavelength [Å]")
+    ax.set_ylabel("Observed flux")
+    ax.set_title("Forward-model observed SED")
+    fig.tight_layout()
+    fig.savefig(path, dpi=180, bbox_inches="tight")
+    print(f"\nSaved SED plot: {path}")
+    if SHOW_PLOTS:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+
+def _plot_samples_and_truths(posterior, fit_params, true_star):
+    samples = np.asarray(posterior.samples, dtype=float)
+    free_names = list(fit_params.free_names)
+
+    label_map = {
+        "teff": r"$T_{\rm eff}$ (K)",
+        "logg": r"$\log g$",
+        "meta": r"$[\rm M/H]$",
+        "a_v":  r"$A_V$ (mag)",
+        "d":    r"$d$ (pc)",
+    }
+
+    truth_map = {
+        "teff": true_star["teff"],
+        "logg": true_star["logg"],
+        "meta": true_star["meta"],
+        "a_v":  true_star["a_v"],
+        "d":    true_star["distance_pc"],
+    }
+
+    plot_samples = samples.copy()
+    for i, name in enumerate(free_names):
+        if name == "d":
+            plot_samples[:, i] = plot_samples[:, i] / PC_TO_CM
+
+    labels = [label_map.get(name, name) for name in free_names]
+    truths = [truth_map.get(name, None) for name in free_names]
+
+    return plot_samples, free_names, labels, truths
+
+
+def plot_posterior_diagnostics(
+    posterior,
+    fit_params,
+    true_star,
+    corner_path="inverse_corner.png",
+    trace_path="inverse_chains.png",
+):
+    plot_samples, free_names, labels, truths = _plot_samples_and_truths(
+        posterior, fit_params, true_star
+    )
+
+    npar = len(free_names)
+    if npar == 0:
+        print("No free parameters; skipping posterior plots.")
+        return
+
+    fig, axes = plt.subplots(npar, npar, figsize=(3.0 * npar, 3.0 * npar))
+
+    if npar == 1:
+        axes = np.array([[axes]])
+
+    fig.suptitle("Posterior distributions", fontsize=13)
+
+    for i in range(npar):
+        for j in range(npar):
+            ax = axes[i, j]
+
+            if i == j:
+                x = plot_samples[:, i]
+
+                ax.hist(
+                    x,
+                    bins=40,
+                    color="steelblue",
+                    alpha=0.7,
+                    density=True,
+                    edgecolor="none",
+                )
+
+                med = float(np.percentile(x, 50.0))
+                lo = float(np.percentile(x, 15.865))
+                hi = float(np.percentile(x, 84.135))
+
+                ax.axvline(med, color="navy", lw=1.5, label=f"median = {med:.4g}")
+                ax.axvline(lo, color="navy", lw=0.8, ls="--")
+                ax.axvline(hi, color="navy", lw=0.8, ls="--")
+
+                if truths[i] is not None:
+                    fmt = ".1f" if free_names[i] == "teff" else ".4g"
+                    ax.axvline(
+                        truths[i],
+                        color="crimson",
+                        lw=1.5,
+                        label=f"true = {truths[i]:{fmt}}",
+                    )
+
+                ax.set_xlabel(labels[i], fontsize=10)
+                ax.set_yticks([])
+                ax.legend(fontsize=7, loc="best")
+
+            elif i > j:
+                ax.scatter(
+                    plot_samples[:, j],
+                    plot_samples[:, i],
+                    s=2,
+                    alpha=0.12,
+                    color="steelblue",
+                    rasterized=True,
+                )
+
+                if truths[j] is not None and truths[i] is not None:
+                    ax.plot(truths[j], truths[i], "r+", ms=10, mew=1.5)
+
+                ax.set_xlabel(labels[j], fontsize=10)
+                ax.set_ylabel(labels[i], fontsize=10)
+
+            else:
+                ax.set_visible(False)
+
+    fig.tight_layout()
+    fig.savefig(corner_path, dpi=150, bbox_inches="tight")
+    print(f"Saved: {corner_path}")
+
+    if SHOW_PLOTS:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    fig2, axes2 = plt.subplots(npar, 1, figsize=(10, 2.0 * npar), sharex=True)
+
+    if npar == 1:
+        axes2 = [axes2]
+
+    for i, ax in enumerate(axes2):
+        ax.plot(plot_samples[:, i], lw=0.4, alpha=0.6, color="steelblue")
+
+        if truths[i] is not None:
+            ax.axhline(truths[i], color="crimson", lw=1.2, ls="--")
+
+        ax.set_ylabel(labels[i], fontsize=10)
+        ax.grid(True, alpha=0.3)
+
+    axes2[-1].set_xlabel("Flattened posterior sample index", fontsize=10)
+    fig2.suptitle("Flattened posterior traces", fontsize=11)
+
+    fig2.tight_layout()
+    fig2.savefig(trace_path, dpi=150, bbox_inches="tight")
+    print(f"Saved: {trace_path}")
+
+    if SHOW_PLOTS:
+        plt.show()
+    else:
+        plt.close(fig2)
 
 # =============================================================================
 # Main
@@ -331,156 +483,13 @@ def main():
     print_dynamic_summary(posterior, fit_params.free_names, TRUE_STAR)
     plot_sed(truth)
 
-
-    samples = np.asarray(posterior.samples, dtype=float)
-    free_names = list(fit_params.free_names)
-
-    # -------------------------------------------------------------------------
-    # Human-friendly labels
-    # -------------------------------------------------------------------------
-    label_map = {
-        "teff": r"$T_{\rm eff}$ (K)",
-        "logg": r"$\log g$",
-        "meta": r"$[\rm M/H]$",
-        "a_v":  r"$A_V$ (mag)",
-        "d":    r"$d$ (pc)",
-    }
-
-    # -------------------------------------------------------------------------
-    # Truth values (only if you synthesised the data)
-    # IMPORTANT: convert distance to pc for plotting
-    # -------------------------------------------------------------------------
-    truth_map = None
-    if SYNTHESISE:
-        truth_map = {
-            "teff": TRUE_TEFF,
-            "logg": TRUE_LOGG,
-            "meta": TRUE_META,
-            "a_v":  TRUE_AV,
-            "d":    TRUE_D / PC_TO_CM,   # plot distance in pc, not cm
-        }
-
-    # -------------------------------------------------------------------------
-    # Copy samples into a plotting array and convert distance from cm -> pc
-    # -------------------------------------------------------------------------
-    plot_samples = samples.copy()
-    for i, name in enumerate(free_names):
-        if name == "d":
-            plot_samples[:, i] = plot_samples[:, i] / PC_TO_CM
-
-    labels = [label_map.get(name, name) for name in free_names]
-    truths = [truth_map.get(name) for name in free_names] if truth_map is not None else None
-
-    npar = len(free_names)
-
-    # -------------------------------------------------------------------------
-    # Corner / triangle plot
-    # -------------------------------------------------------------------------
-    fig, axes = plt.subplots(npar, npar, figsize=(3.0 * npar, 3.0 * npar))
-
-    if npar == 1:
-        axes = np.array([[axes]])
-
-    fig.suptitle("Posterior distributions", fontsize=13)
-
-    for i in range(npar):
-        for j in range(npar):
-            ax = axes[i, j]
-
-            if i == j:
-                # 1D marginal
-                x = plot_samples[:, i]
-
-                ax.hist(
-                    x,
-                    bins=40,
-                    color="steelblue",
-                    alpha=0.7,
-                    density=True,
-                    edgecolor="none",
-                )
-
-                med = float(np.percentile(x, 50.0))
-                lo  = float(np.percentile(x, 15.865))
-                hi  = float(np.percentile(x, 84.135))
-
-                ax.axvline(med, color="navy", lw=1.5, label=f"median = {med:.4g}")
-                ax.axvline(lo,  color="navy", lw=0.8, ls="--")
-                ax.axvline(hi,  color="navy", lw=0.8, ls="--")
-
-                if truths is not None and truths[i] is not None:
-                    t = truths[i]
-                    fmt = ".4g" if name != "teff" else ".1f"
-                    ax.axvline(
-                        t,
-                        color="crimson",
-                        lw=1.5,
-                        ls="-",
-                        label=f"true = {t:{fmt}}",
-                    )
-
-                ax.set_xlabel(labels[i], fontsize=10)
-                ax.set_yticks([])
-                ax.legend(fontsize=7, loc="best")
-
-            elif i > j:
-                # 2D posterior scatter
-                ax.scatter(
-                    plot_samples[:, j],
-                    plot_samples[:, i],
-                    s=2,
-                    alpha=0.12,
-                    color="steelblue",
-                    rasterized=True,
-                )
-
-                if truths is not None and truths[j] is not None and truths[i] is not None:
-                    ax.plot(truths[j], truths[i], "r+", ms=10, mew=1.5)
-
-                ax.set_xlabel(labels[j], fontsize=10)
-                ax.set_ylabel(labels[i], fontsize=10)
-
-            else:
-                ax.set_visible(False)
-
-    plt.tight_layout()
-    plt.savefig("inverse_corner.png", dpi=150, bbox_inches="tight")
-    print("Saved: inverse_corner.png")
-
-
-    # -------------------------------------------------------------------------
-    # "Trace" plot
-    #
-    # NOTE:
-    # With the current codebase, posterior only stores flattened post-burn samples,
-    # not the full (step, walker, dim) chain.
-    # So this is NOT a true convergence plot.
-    # It is a sample-order trace of the flattened posterior.
-    # -------------------------------------------------------------------------
-    fig2, axes2 = plt.subplots(npar, 1, figsize=(10, 2.0 * npar), sharex=True)
-
-    if npar == 1:
-        axes2 = [axes2]
-
-    for i, ax in enumerate(axes2):
-        ax.plot(plot_samples[:, i], lw=0.4, alpha=0.6, color="steelblue")
-
-        if truths is not None and truths[i] is not None:
-            ax.axhline(truths[i], color="crimson", lw=1.2, ls="--")
-
-        ax.set_ylabel(labels[i], fontsize=10)
-        ax.grid(True, alpha=0.3)
-
-    axes2[-1].set_xlabel("Flattened posterior sample index", fontsize=10)
-    fig2.suptitle("Flattened posterior traces (not true walker traces)", fontsize=11)
-
-    plt.tight_layout()
-    plt.savefig("inverse_chains.png", dpi=150, bbox_inches="tight")
-    print("Saved: inverse_chains.png")
-
-    plt.show()
-
-
+    plot_posterior_diagnostics(
+        posterior=posterior,
+        fit_params=fit_params,
+        true_star=TRUE_STAR,
+        corner_path="inverse_corner.png",
+        trace_path="inverse_chains.png",
+    )
 
 
 if __name__ == "__main__":

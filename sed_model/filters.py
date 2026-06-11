@@ -263,9 +263,14 @@ def _load_vega_sed(path: Path) -> tuple[np.ndarray, np.ndarray]:
 # Zero-point computation  (mirrors synthetic.f90)
 # ---------------------------------------------------------------------------
 
-def _trapz(x: np.ndarray, y: np.ndarray) -> float:
-    """Trapezoidal integration (scalar result)."""
-    return float(np.trapezoid(y, x))
+def _trapezoid(x: np.ndarray, y: np.ndarray) -> float:
+    """Trapezoidal integration (scalar result).
+
+    Uses ``np.trapezoid`` (NumPy >= 2.0) when available, falling back to
+    ``np.trapezoid`` on NumPy 1.x so the package works under both ABIs.
+    """
+    integ = getattr(np, "trapezoid", np.trapezoid)
+    return float(integ(y, x))
 
 
 def _compute_vega_zero_point(
@@ -281,8 +286,8 @@ def _compute_vega_zero_point(
       F_zp = ∫ F_vega(λ) T(λ) λ dλ / ∫ T(λ) λ dλ
     """
     trans_on_vega = np.interp(vega_wave, filt_wave, filt_trans, left=0.0, right=0.0)
-    num = _trapz(vega_wave, vega_flux * trans_on_vega * vega_wave)
-    den = _trapz(vega_wave, trans_on_vega * vega_wave)
+    num = _trapezoid(vega_wave, vega_flux * trans_on_vega * vega_wave)
+    den = _trapezoid(vega_wave, trans_on_vega * vega_wave)
     return num / den if den > 0.0 else -1.0
 
 
@@ -298,8 +303,8 @@ def _compute_ab_zero_point(
     # Convert f_nu (flat 3631 Jy) to f_lambda; wavelength in Å → multiply c
     # by 1e8 to convert cm/s → Å/s so units cancel correctly
     f_ab = _AB_FNU_ZP * (_CLIGHT_CM_S * 1e8) / (filt_wave ** 2)
-    num = _trapz(filt_wave, f_ab * filt_trans * filt_wave)
-    den = _trapz(filt_wave, filt_trans * filt_wave)
+    num = _trapezoid(filt_wave, f_ab * filt_trans * filt_wave)
+    den = _trapezoid(filt_wave, filt_trans * filt_wave)
     return num / den if den > 0.0 else -1.0
 
 
@@ -315,6 +320,6 @@ def _compute_st_zero_point(
     Computed explicitly for consistency with the Fortran implementation.
     """
     f_st = np.full_like(filt_wave, _ST_FLAM_ZP)
-    num = _trapz(filt_wave, f_st * filt_trans * filt_wave)
-    den = _trapz(filt_wave, filt_trans * filt_wave)
+    num = _trapezoid(filt_wave, f_st * filt_trans * filt_wave)
+    den = _trapezoid(filt_wave, filt_trans * filt_wave)
     return num / den if den > 0.0 else -1.0

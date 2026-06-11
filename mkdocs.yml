@@ -1,0 +1,91 @@
+site_name: SED_Model
+site_description: Synthetic photometry and stellar parameter inference.
+site_url: https://nialljmiller.github.io/SED_Model/
+repo_url: https://github.com/nialljmiller/SED_Model
+repo_name: nialljmiller/SED_Model
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: SED_Model_Logo.png
+  favicon: SED_Model_Logo.png
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            docstring_style: numpy
+            show_source: true
+            show_root_heading: true
+            members_order: source
+            separate_signature: true
+            merge_init_into_class: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - footnotes
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+  - pymdownx.arithmatex:
+      generic: true
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: installation.md
+      - Quick Start: quickstart.md
+  - User Guide:
+      - Grids and Filters: guide/grids-and-filters.md
+      - Forward Model: guide/forward.md
+      - Inverse Model: guide/inverse.md
+      - Parameter Modes: guide/parameters.md
+      - Extinction: guide/extinction.md
+      - Results and I/O: guide/results-io.md
+  - Demonstrations:
+      - Overview: demos/index.md
+      - Forward Model Demo: demos/forward.md
+      - Inverse Model Demo: demos/inverse.md
+      - Parameter Modes Demo: demos/param-modes.md
+      - Extinction Comparison: demos/extinction-comparison.md
+      - Playground: demos/playground.md
+      - API Usage Script: demos/api-usage.md
+  - API Reference: api.md
+  - Testing and Validation: testing.md

@@ -1,7 +1,7 @@
 project(
   'sed_model',
   'c', 'fortran',
-  version: '0.1.0',
+  version: '0.1.7',
   meson_version: '>=1.1.0',
 )
 
