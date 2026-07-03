@@ -137,7 +137,7 @@ contains
    ! Odd n: full composite Simpson over all n points.
    ! Even n: composite Simpson over the first n-1 points (odd), then a single
    !         trapezoid panel for the last pair.  This is O(h^4) accurate
-   !         everywhere except the last panel, which is O(h^2) — far better
+   !         everywhere except the last panel, which is O(h^2) -- far better
    !         than falling back to trapezoid over the entire array.
    subroutine simpson_integration(x, y, result)
       real(dp), intent(in)  :: x(:), y(:)
@@ -184,7 +184,7 @@ contains
    ! Interpolate filter transmission onto the SED wavelength grid using a
    ! two-pointer walk instead of a binary search per SED point.  Both grids
    ! are assumed to be sorted ascending, so the filter pointer lo only ever
-   ! advances — O(n_sed + n_filt) rather than O(n_sed * log n_filt).
+   ! advances -- O(n_sed + n_filt) rather than O(n_sed * log n_filt).
    subroutine interp_filter_onto_sed(filt_wave, filt_trans, sed_wave, filt_on_sed, ierr)
       real(dp), intent(in)  :: filt_wave(:), filt_trans(:)
       real(dp), intent(in)  :: sed_wave(:)
