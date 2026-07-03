@@ -15,6 +15,8 @@ Usage
 Edit the STELLAR PARAMETERS and DATA PATHS sections below to suit your setup.
 """
 
+import os
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -25,9 +27,9 @@ from sed_model.io import save_sed, save_magnitudes
 # DATA PATHS  —  edit these
 # =============================================================================
 
-GRID_DIR    = "~/SED_Tools/data/stellar_models/Kurucz2003all"
-FILTER_DIR  = "~/SED_Tools/data/filters/Generic/Johnson"
-VEGA_SED    = "~/SED_Tools/data/stellar_models/vega_flam.csv"
+GRID_DIR    = os.path.expanduser("~/SED_Tools/data/stellar_models/Kurucz2003all")
+FILTER_DIR  = os.path.expanduser("~/SED_Tools/data/filters/Generic/Johnson")
+VEGA_SED    = os.path.expanduser("~/SED_Tools/data/stellar_models/vega_flam.csv")
 
 # =============================================================================
 # STELLAR PARAMETERS  —  edit these
@@ -44,11 +46,6 @@ MAG_SYSTEM = "AB"        # "AB", "Vega", or "ST"
 # =============================================================================
 # LOAD DATA
 # =============================================================================
-
-import os
-GRID_DIR   = os.path.expanduser(GRID_DIR)
-FILTER_DIR = os.path.expanduser(FILTER_DIR)
-VEGA_SED   = os.path.expanduser(VEGA_SED)
 
 print("Loading atmosphere grid ...")
 grid = load_grid(GRID_DIR)
@@ -77,9 +74,9 @@ result = run_forward(
 
 if result.clamped:
     print(f"  WARNING: parameters clamped to grid boundary "
-          f"(interp_radius={result.interp_radius:.4f})")
+          f"(nearest_grid_distance={result.nearest_grid_distance:.4f})")
 else:
-    print(f"  Interpolation radius: {result.interp_radius:.6f}")
+    print(f"  Interpolation radius: {result.nearest_grid_distance:.6f}")
 
 # =============================================================================
 # PRINT RESULTS

@@ -310,7 +310,7 @@ class TestGridLoader:
         from sed_model import load_grid
         g = load_grid(KURUCZ_DIR)
         t0, l0, m0 = g.teff_grid[0], g.logg_grid[0], g.meta_grid[0]
-        assert g.interp_radius(t0, l0, m0) < 1e-10
+        assert g.nearest_grid_distance(t0, l0, m0) < 1e-10
 
 
 class TestFilterLoader:

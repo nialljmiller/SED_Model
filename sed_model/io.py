@@ -25,6 +25,16 @@ from .forward import ForwardResult
 
 
 # ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _normalise_npz_path(path: str | Path) -> Path:
+    """Ensure *path* has a .npz extension."""
+    path = Path(path)
+    return path if path.suffix == ".npz" else path.with_suffix(".npz")
+
+
+# ---------------------------------------------------------------------------
 # InverseResult
 # ---------------------------------------------------------------------------
 
@@ -170,9 +180,7 @@ class InverseResult:
         path : str or Path
             Output file.  The ``.npz`` extension is added if absent.
         """
-        path = Path(path)
-        if path.suffix != ".npz":
-            path = path.with_suffix(".npz")
+        path = _normalise_npz_path(path)
 
         meta_dict = {
             "filter_names":    self.filter_names,
@@ -209,10 +217,7 @@ class InverseResult:
         path : str or Path
             Path to a ``.npz`` file produced by :meth:`save`.
         """
-        path = Path(path)
-        if path.suffix != ".npz":
-            path = path.with_suffix(".npz")
-
+        path = _normalise_npz_path(path)
         data = np.load(path, allow_pickle=False)
         meta = json.loads(str(data["meta_json"][0]))
 

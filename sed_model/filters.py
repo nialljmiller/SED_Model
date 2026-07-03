@@ -13,9 +13,10 @@ Zero-point definitions
                where F_AB(λ) = 3.631e-20 × c / λ²  [erg/s/cm²/Å]
   ST    :  F_zp = 3.63e-9  (flat F_lambda, constant)
 
-All integrals use the trapezoid rule for wavelength grids that may be
-non-uniform.  The Fortran runtime uses adaptive Simpson; the difference
-is negligible for the dense wavelength grids produced by SED_Tools.
+Zero-points are computed through the compiled cc_api Fortran extension so
+the Python loader uses the same numerical kernels as run_forward() and the
+current MESA Colors implementation.  A pure-Python trapezoid fallback is
+kept for environments where the extension has not yet been built.
 """
 
 from __future__ import annotations
@@ -25,14 +26,16 @@ from pathlib import Path
 
 import numpy as np
 
+from ._cc_ext import get_cc_api
+
 
 # ---------------------------------------------------------------------------
 # Constants  (cgs, wavelength in Angstroms)
 # ---------------------------------------------------------------------------
 
-_CLIGHT_CM_S  = 2.99792458e10   # speed of light in cm/s
-_AB_FNU_ZP    = 3.631e-20       # 3631 Jy in erg/s/cm^2/Hz
-_ST_FLAM_ZP   = 3.63e-9         # flat f_lambda zero-point erg/s/cm^2/Å
+_CLIGHT_CM_S = 2.99792458e10   # speed of light — only used in Python AB fallback
+_AB_FNU_ZP   = 3.631e-20       # 3631 Jy in erg/s/cm^2/Hz
+_ST_FLAM_ZP  = 3.63e-9         # flat f_lambda zero-point erg/s/cm^2/Å
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +73,13 @@ class Filter:
     st_zero_point:   float = field(default=-1.0)
 
     def zero_point(self, system: str) -> float:
-        """Return the zero-point for *system* ('Vega', 'AB', or 'ST')."""
+        """Return the zero-point for *system*.
+
+        Parameters
+        ----------
+        system : str
+            One of ``'Vega'``, ``'AB'``, ``'ST'`` (case-insensitive).
+        """
         s = system.upper()
         if s == "VEGA":
             if self.vega_zero_point < 0:
@@ -94,7 +103,7 @@ class Filter:
 
 
 # ---------------------------------------------------------------------------
-# Public loader
+# Public loaders
 # ---------------------------------------------------------------------------
 
 def load_filters(
@@ -156,6 +165,11 @@ def load_filters_from_instrument_dir(
     lists one ``.dat`` filename per line.  This mirrors the structure
     expected by the MESA colors module.
 
+    Filters are returned in index-file order, or alphabetically when
+    the index file is absent.  Capture ``[f.name for f in filters]``
+    immediately after loading to record the stable order for use with
+    ``obs_magnitudes`` arrays.
+
     Parameters
     ----------
     instrument_dir:
@@ -172,7 +186,6 @@ def load_filters_from_instrument_dir(
     index_file = instrument_dir / index_name
 
     if not index_file.exists():
-        # Fallback: load every .dat in the directory
         dat_files = sorted(instrument_dir.glob("*.dat"))
         if not dat_files:
             raise FileNotFoundError(
@@ -192,7 +205,6 @@ def load_filters_from_instrument_dir(
 # ---------------------------------------------------------------------------
 # Internal I/O helpers
 # ---------------------------------------------------------------------------
-
 
 def _sniff_delimiter(path: Path) -> str:
     """Return ',' if the file looks like CSV, else None (whitespace)."""
@@ -214,15 +226,10 @@ def _load_filter_dat(path: Path) -> tuple[np.ndarray, np.ndarray]:
     if not path.exists():
         raise FileNotFoundError(f"Filter file not found: {path}")
 
-    # Sniff the delimiter from the first non-comment line, then load.
-    # genfromtxt with invalid_raise=False produces NaN for non-numeric
-    # rows (e.g. a 'Wavelength,Transmission' CSV header) rather than
-    # raising, so we can simply drop those rows afterwards.
     delimiter = _sniff_delimiter(path)
     data = np.genfromtxt(path, comments="#", delimiter=delimiter,
                          invalid_raise=False)
 
-    # Drop rows where either column is NaN (header or malformed lines).
     if data.ndim == 2:
         mask = np.isfinite(data[:, 0]) & np.isfinite(data[:, 1])
         data = data[mask]
@@ -235,7 +242,6 @@ def _load_filter_dat(path: Path) -> tuple[np.ndarray, np.ndarray]:
     wave  = data[:, 0].astype(np.float64)
     trans = data[:, 1].astype(np.float64)
 
-    # Enforce ascending wavelength
     if not np.all(np.diff(wave) > 0):
         order = np.argsort(wave)
         wave, trans = wave[order], trans[order]
@@ -263,14 +269,22 @@ def _load_vega_sed(path: Path) -> tuple[np.ndarray, np.ndarray]:
 # Zero-point computation  (mirrors synthetic.f90)
 # ---------------------------------------------------------------------------
 
-def _trapezoid(x: np.ndarray, y: np.ndarray) -> float:
-    """Trapezoidal integration (scalar result).
+def _run_fortran_zero_point(fortran_method: str, *arrays: np.ndarray) -> float | None:
+    """Attempt a Fortran zero-point kernel call.
 
-    Uses ``np.trapezoid`` (NumPy >= 2.0) when available, falling back to
-    ``np.trapezoid`` on NumPy 1.x so the package works under both ABIs.
+    Returns the zero-point as a float, or None if the extension is absent or
+    the kernel signals failure (ierr != 0).  Callers fall back to Python.
     """
-    integ = getattr(np, "trapezoid", np.trapezoid)
-    return float(integ(y, x))
+    cc = get_cc_api()
+    if cc is None:
+        return None
+    prepared = [np.ascontiguousarray(a, dtype=np.float64) for a in arrays]
+    zp, ierr = getattr(cc, fortran_method)(*prepared)
+    return float(zp) if int(ierr) == 0 else None
+
+
+def _trapezoid(x: np.ndarray, y: np.ndarray) -> float:
+    return float(np.trapezoid(y, x))
 
 
 def _compute_vega_zero_point(
@@ -279,12 +293,12 @@ def _compute_vega_zero_point(
     filt_wave: np.ndarray,
     filt_trans: np.ndarray,
 ) -> float:
-    """Photon-counting Vega zero-point.
+    result = _run_fortran_zero_point(
+        'vega_zero_point', vega_wave, vega_flux, filt_wave, filt_trans
+    )
+    if result is not None:
+        return result
 
-    Interpolates the filter transmission onto the Vega wavelength grid
-    then integrates:
-      F_zp = ∫ F_vega(λ) T(λ) λ dλ / ∫ T(λ) λ dλ
-    """
     trans_on_vega = np.interp(vega_wave, filt_wave, filt_trans, left=0.0, right=0.0)
     num = _trapezoid(vega_wave, vega_flux * trans_on_vega * vega_wave)
     den = _trapezoid(vega_wave, trans_on_vega * vega_wave)
@@ -295,13 +309,10 @@ def _compute_ab_zero_point(
     filt_wave: np.ndarray,
     filt_trans: np.ndarray,
 ) -> float:
-    """Photon-counting AB zero-point.
+    result = _run_fortran_zero_point('ab_zero_point', filt_wave, filt_trans)
+    if result is not None:
+        return result
 
-    Constructs F_AB(λ) = 3.631e-20 × c_cm / λ² on the filter grid then:
-      F_zp = ∫ F_AB(λ) T(λ) λ dλ / ∫ T(λ) λ dλ
-    """
-    # Convert f_nu (flat 3631 Jy) to f_lambda; wavelength in Å → multiply c
-    # by 1e8 to convert cm/s → Å/s so units cancel correctly
     f_ab = _AB_FNU_ZP * (_CLIGHT_CM_S * 1e8) / (filt_wave ** 2)
     num = _trapezoid(filt_wave, f_ab * filt_trans * filt_wave)
     den = _trapezoid(filt_wave, filt_trans * filt_wave)
@@ -312,13 +323,10 @@ def _compute_st_zero_point(
     filt_wave: np.ndarray,
     filt_trans: np.ndarray,
 ) -> float:
-    """Photon-counting ST zero-point.
+    result = _run_fortran_zero_point('st_zero_point', filt_wave, filt_trans)
+    if result is not None:
+        return result
 
-    F_ST(λ) = 3.63e-9 erg/s/cm²/Å (flat spectrum):
-      F_zp = ∫ F_ST T(λ) λ dλ / ∫ T(λ) λ dλ
-           = 3.63e-9  (constant cancels)
-    Computed explicitly for consistency with the Fortran implementation.
-    """
     f_st = np.full_like(filt_wave, _ST_FLAM_ZP)
     num = _trapezoid(filt_wave, f_st * filt_trans * filt_wave)
     den = _trapezoid(filt_wave, filt_trans * filt_wave)

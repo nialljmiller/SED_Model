@@ -12,7 +12,7 @@ language about the same quantities.
 Parameter modes
 ---------------
 Every physical parameter (Teff, logg, [M/H], Av, distance) is described by
-a ``ParamSpec``.  Three modes are supported:
+a ``ParamSpec``.  Two modes are supported:
 
 ``fixed(value)``
     The parameter is not sampled.  It is passed directly to the forward
@@ -25,8 +25,8 @@ a ``ParamSpec``.  Three modes are supported:
     taken from the atmosphere grid at construction time).
 
 ``bounded(lo, hi)``
-    Alias for ``free`` — included so user code can be explicit that it wants
-    the parameter sampled with a hard upper and lower limit.
+    Explicit alias for ``free`` — use when you want to be unambiguous that
+    the parameter is sampled with hard upper and lower limits.
 
 The degeneracy between Av and distance is real and expected: if both are
 free simultaneously the posterior will be correlated.  That is honest — the
@@ -58,6 +58,7 @@ Usage
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Optional, Tuple, Union
 
@@ -83,7 +84,7 @@ class ParamSpec:
     Attributes
     ----------
     name : str
-        Human-readable parameter name (e.g. 'Teff', 'Av').
+        Human-readable parameter name (e.g. 'teff', 'a_v').
     mode : {'fixed', 'free'}
         Whether the parameter is held constant or sampled.
     value : float or None
@@ -119,9 +120,9 @@ class ParamSpec:
         return self.mode == 'free'
 
     def contains(self, v: float) -> bool:
-        """True if *v* is within the sampling bounds (free) or equals the fixed value."""
+        """True if *v* is within the sampling bounds (free) or always True (fixed)."""
         if self.is_fixed:
-            return True  # fixed values are always "valid" from a prior standpoint
+            return True
         return self.lo <= v <= self.hi
 
     def __repr__(self) -> str:
@@ -144,8 +145,9 @@ def free(lo: float, hi: float, name: str = "") -> ParamSpec:
     return ParamSpec(name=name, mode='free', lo=float(lo), hi=float(hi))
 
 
-# bounded is an alias for free — use it when you want to be explicit
-bounded = free
+def bounded(lo: float, hi: float, name: str = "") -> ParamSpec:
+    """Alias for ``free`` — use to be explicit about hard sampling bounds."""
+    return free(lo, hi, name=name)
 
 
 # ---------------------------------------------------------------------------
@@ -188,19 +190,18 @@ class FitParams:
     d:    ParamSpec = field(default_factory=lambda: fixed(PC_TO_CM, name='d'))
 
     def __post_init__(self):
-        # Stamp names if the user left them blank
+        # Stamp names if the user left them blank, using dataclasses.replace
+        # so the frozen ParamSpec objects are never mutated in-place.
         for attr in _PARAM_ORDER:
             spec = getattr(self, attr)
             if not spec.name:
-                object.__setattr__(spec, 'name', attr)  # ParamSpec is frozen
+                setattr(self, attr, dataclasses.replace(spec, name=attr))
 
-        # Validate d > 0
         if self.d.is_fixed and self.d.value <= 0:
             raise ValueError("Distance must be > 0 cm")
         if self.d.is_free and self.d.lo <= 0:
             raise ValueError("Distance lower bound must be > 0 cm")
 
-        # Validate Av >= 0
         if self.a_v.is_fixed and self.a_v.value < 0:
             raise ValueError("Av must be >= 0")
         if self.a_v.is_free and self.a_v.lo < 0:
@@ -224,9 +225,6 @@ class FitParams:
     def fixed_names(self) -> list:
         """Names of the fixed parameters."""
         return [p for p in _PARAM_ORDER if getattr(self, p).is_fixed]
-
-    def _spec(self, name: str) -> ParamSpec:
-        return getattr(self, name)
 
     # ------------------------------------------------------------------
     # theta packing / unpacking
@@ -259,20 +257,16 @@ class FitParams:
         result = {}
         free_iter = iter(theta)
         for p in _PARAM_ORDER:
-            spec = self._spec(p)
+            spec = getattr(self, p)
             result[p] = next(free_iter) if spec.is_free else spec.value
         return result
 
     def in_prior(self, theta: np.ndarray) -> bool:
         """Return True if all free parameters in theta are within their bounds."""
-        free_iter = iter(theta)
-        for p in _PARAM_ORDER:
-            spec = self._spec(p)
-            if spec.is_free:
-                v = next(free_iter)
-                if not (spec.lo <= v <= spec.hi):
-                    return False
-        return True
+        if len(theta) != self.n_free:
+            return False
+        unpacked = self.unpack(theta)
+        return all(getattr(self, p).contains(unpacked[p]) for p in self.free_names)
 
     def initial_ball(self, n_walkers: int,
                      centre: Optional[dict] = None,
@@ -303,11 +297,10 @@ class FitParams:
         lo_arr = []
         hi_arr = []
         for p in self.free_names:
-            spec = self._spec(p)
+            spec = getattr(self, p)
             mid = 0.5 * (spec.lo + spec.hi)
             c.append(centre[p] if (centre and p in centre) else mid)
-            rng_width = spec.hi - spec.lo
-            s.append(scatter * rng_width)
+            s.append(scatter * (spec.hi - spec.lo))
             lo_arr.append(spec.lo)
             hi_arr.append(spec.hi)
 
@@ -334,7 +327,7 @@ class FitParams:
             d="distance (cm)",
         )
         for p in _PARAM_ORDER:
-            spec = self._spec(p)
+            spec = getattr(self, p)
             label = labels.get(p, p)
             if spec.is_fixed:
                 lines.append(f"  {label:<18} fixed = {spec.value!r}")
@@ -368,7 +361,7 @@ def _spec_from_user_value(
 
     if isinstance(value, ParamSpec):
         if not value.name:
-            object.__setattr__(value, 'name', name)
+            return dataclasses.replace(value, name=name)
         return value
 
     if isinstance(value, (int, float)):
@@ -380,18 +373,19 @@ def _spec_from_user_value(
 
 def fit_params_from_grid(
     grid,
-    a_v:  Union[float, Tuple[float, float], ParamSpec, None] = None,
-    d_cm: Union[float, Tuple[float, float], ParamSpec, None] = None,
     *,
     teff: Union[float, Tuple[float, float], ParamSpec, None] = None,
     logg: Union[float, Tuple[float, float], ParamSpec, None] = None,
     meta: Union[float, Tuple[float, float], ParamSpec, None] = None,
+    a_v:  Union[float, Tuple[float, float], ParamSpec, None] = None,
+    d_cm: Union[float, Tuple[float, float], ParamSpec, None] = None,
 ) -> FitParams:
     """Build a FitParams from grid bounds plus optional user overrides.
 
     By default Teff/logg/[M/H] are free over the full grid, Av is fixed to
     zero, and distance is fixed to 1 pc.  For any parameter, pass either a
-    float to fix it or a ``(lo, hi)`` tuple to sample it.
+    float to fix it or a ``(lo, hi)`` tuple to sample it.  All parameters
+    are keyword-only.
 
     Examples
     --------

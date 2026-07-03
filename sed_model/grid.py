@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 
 
 # ---------------------------------------------------------------------------
@@ -47,15 +46,19 @@ class AtmosphereGrid:
         Wavelength grid in Angstroms.
     flux : ndarray, shape (n_T, n_L, n_M, n_W)
         Surface flux in erg/s/cm^2/Å at each (Teff, logg, [M/H]) node.
+    flux_fortran : ndarray, shape (n_T, n_L, n_M, n_W)
+        Fortran-contiguous copy of ``flux`` for zero-copy Fortran calls.
+        Pre-computed at load time so the hot path avoids repeated copies.
     model_dir : Path
         Directory from which the grid was loaded.
     """
-    teff_grid:   np.ndarray
-    logg_grid:   np.ndarray
-    meta_grid:   np.ndarray
-    wavelengths: np.ndarray
-    flux:        np.ndarray
-    model_dir:   Path
+    teff_grid:    np.ndarray
+    logg_grid:    np.ndarray
+    meta_grid:    np.ndarray
+    wavelengths:  np.ndarray
+    flux:         np.ndarray
+    flux_fortran: np.ndarray
+    model_dir:    Path
 
     # ------------------------------------------------------------------
     # Convenience
@@ -90,12 +93,12 @@ class AtmosphereGrid:
         meta = float(np.clip(meta, *self.meta_bounds))
         return teff, logg, meta
 
-    def interp_radius(
+    def nearest_grid_distance(
         self, teff: float, logg: float, meta: float
     ) -> float:
-        """Euclidean distance in normalised parameter space from the
-        nearest grid point.  Mirrors the ``Interp_rad`` diagnostic
-        produced by the MESA colors module."""
+        """Euclidean distance in normalised parameter space from the nearest
+        grid point.  Mirrors the ``Interp_rad`` diagnostic produced by the
+        MESA colors module."""
         t_norm = (self.teff_grid[-1] - self.teff_grid[0]) or 1.0
         l_norm = (self.logg_grid[-1] - self.logg_grid[0]) or 1.0
         m_norm = (self.meta_grid[-1] - self.meta_grid[0]) or 1.0
@@ -165,6 +168,7 @@ def load_grid(model_dir: str | Path) -> AtmosphereGrid:
         meta_grid=meta_grid,
         wavelengths=wavelengths,
         flux=flux,
+        flux_fortran=np.asfortranarray(flux, dtype=np.float64),
         model_dir=model_dir,
     )
 
@@ -182,8 +186,7 @@ def _read_flux_cube(
     where flux has shape (n_T, n_L, n_M, n_W).
     """
     with open(path, "rb") as fh:
-        # --- header ---
-        header_bytes = fh.read(16)          # 4 × int32 = 16 bytes
+        header_bytes = fh.read(16)
         if len(header_bytes) < 16:
             raise ValueError(f"{path}: file too short to contain a valid header")
 
@@ -195,7 +198,6 @@ def _read_flux_cube(
                 f"({n_teff}, {n_logg}, {n_meta}, {n_lambda})"
             )
 
-        # --- axes ---
         n_axis_total = n_teff + n_logg + n_meta + n_lambda
         axes_raw = np.frombuffer(fh.read(n_axis_total * 8), dtype=np.float64)
         if axes_raw.size != n_axis_total:
@@ -207,7 +209,6 @@ def _read_flux_cube(
         meta_grid   = axes_raw[offset : offset + n_meta].copy();  offset += n_meta
         wavelengths = axes_raw[offset : offset + n_lambda].copy()
 
-        # --- payload (W, M, L, T) on disk → (T, L, M, W) in memory ---
         n_total = n_teff * n_logg * n_meta * n_lambda
         payload = np.frombuffer(fh.read(n_total * 8), dtype=np.float64)
         if payload.size != n_total:
@@ -216,13 +217,11 @@ def _read_flux_cube(
                 f"(got {payload.size}, expected {n_total})"
             )
 
-        # disk layout: (n_lambda, n_meta, n_logg, n_teff)  [Fortran STREAM,
-        # outermost written first = slowest-varying index in Fortran column-
-        # major → wavelength is written outermost in the SED_Tools builder]
+        # Disk layout: (n_lambda, n_meta, n_logg, n_teff) → transpose to (T, L, M, W)
         flux = (
             payload
             .reshape(n_lambda, n_meta, n_logg, n_teff)
-            .transpose(3, 2, 1, 0)          # → (T, L, M, W)
+            .transpose(3, 2, 1, 0)
             .copy()
         )
 
@@ -233,13 +232,19 @@ def _read_flux_cube(
 # Optional validation helper
 # ---------------------------------------------------------------------------
 
-def validate_lookup_table(grid: AtmosphereGrid) -> pd.DataFrame:
+def validate_lookup_table(grid: AtmosphereGrid):
     """Read and return the ``lookup_table.csv`` from *grid.model_dir*.
 
     Useful for sanity-checking that the grid axes in the binary cube
     are consistent with the CSV metadata.  Not called at load time to
     avoid the pandas overhead on every initialisation.
+
+    Returns
+    -------
+    pandas.DataFrame
     """
+    import pandas as pd
+
     lookup_path = grid.model_dir / "lookup_table.csv"
     if not lookup_path.exists():
         raise FileNotFoundError(f"lookup_table.csv not found in {grid.model_dir}")

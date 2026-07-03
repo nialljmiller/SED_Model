@@ -6,6 +6,28 @@ import subprocess
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 
+# Compile order matters for the f2py/gfortran command below -- each
+# file must appear after the modules it `use`s. Same order as the
+# Makefile and meson.build.
+# Compile order matters for the f2py/gfortran command below -- each
+# file must appear after the modules it `use`s. Same order as the
+# Makefile and meson.build.
+#
+# fortran/public/colors_lib.f90 is deliberately NOT included: f2py
+# (under the numpy<2.0 this project pins) cannot wrap a module that
+# only re-exports procedures from other modules. cc_api.f90 uses the
+# private kernels directly instead -- see fortran/cc_api.f90 and
+# fortran/public/colors_lib.f90 headers, and MIGRATION.md.
+FORTRAN_SOURCES = [
+    os.path.join("fortran", "public", "colors_def.f90"),
+    os.path.join("fortran", "private", "colors_utils.f90"),
+    os.path.join("fortran", "private", "hermite_interp.f90"),
+    os.path.join("fortran", "private", "linear_interp.f90"),
+    os.path.join("fortran", "private", "synthetic.f90"),
+    os.path.join("fortran", "private", "bolometric.f90"),
+    os.path.join("fortran", "cc_api.f90"),
+]
+
 
 class F2pyBuildExt(build_ext):
     def build_extension(self, ext):
@@ -25,8 +47,7 @@ class F2pyBuildExt(build_ext):
         subprocess.check_call(
             [
                 sys.executable, "-m", "numpy.f2py", "-c",
-                os.path.join(src_dir, "fortran", "cc_kernels.f90"),
-                os.path.join(src_dir, "fortran", "cc_api.f90"),
+                *[os.path.join(src_dir, s) for s in FORTRAN_SOURCES],
                 "-m", "cc_api",
             ],
             cwd=src_dir,

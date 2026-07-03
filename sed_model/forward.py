@@ -18,16 +18,24 @@ This shared vocabulary is what makes the module bidirectional: the inverse
 model unpacks a theta vector with FitParams.unpack and passes the result
 directly to run_forward.
 
-Backward-compatible call
-------------------------
-The original positional signature still works::
+Calling conventions
+-------------------
+Classic (keyword-explicit)::
 
-    run_forward(teff, logg, meta, R, d, grid, filters)
+    run_forward(teff=5778, logg=4.44, meta=0.0,
+                R=6.957e10, d=3.086e19,
+                grid=grid, filters=filters)
 
-FitParams call (used by the inverse model)::
+FitParams (used by the inverse model)::
 
     run_forward(fit_params=params, theta=theta_vec,
                 R=R_sun, grid=grid, filters=filters)
+
+In the FitParams convention ``theta`` contains only the *free* parameters
+in canonical order (teff, logg, meta, a_v, d — skipping fixed ones).
+``fit_params.unpack(theta)`` fills in the fixed values.  If Av or
+distance are free parameters they are taken from theta, not from any
+keyword argument.
 """
 
 from __future__ import annotations
@@ -40,26 +48,10 @@ import numpy as np
 from .grid import AtmosphereGrid
 from .filters import Filter
 from .params import FitParams
+from ._cc_ext import get_cc_api
 
 if TYPE_CHECKING:
     from sed_extinction import ExtinctionModel
-
-
-# ---------------------------------------------------------------------------
-# Fortran extension
-# ---------------------------------------------------------------------------
-
-def _get_cc_api():
-    try:
-        from . import cc_api as _ext
-        # f2py wraps each Fortran module as a submodule of the extension.
-        # Functions defined in `module cc_api` live at _ext.cc_api.<function>.
-        return _ext.cc_api
-    except ImportError as exc:
-        raise ImportError(
-            "The Fortran extension 'cc_api' is not built. "
-            "Run 'make' in the SED_Model root directory."
-        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -75,24 +67,34 @@ class ForwardResult:
     ``ForwardResult.magnitudes`` to compute the likelihood; the forward
     model reads parameters from FitParams — both sides work with the same
     data structure.
+
+    Attributes
+    ----------
+    nearest_grid_distance : float
+        Euclidean distance in normalised parameter space from the nearest
+        grid point (mirrors the MESA ``Interp_rad`` diagnostic).  Zero for
+        an exact grid point, larger as the query moves away from the grid.
+    magnitudes : dict[str, float]
+        Synthetic magnitudes keyed by filter name, in the order the
+        ``filters`` list was provided to ``run_forward``.
     """
-    wavelengths:        np.ndarray
-    surface_flux:       np.ndarray
-    observed_flux:      np.ndarray
-    magnitudes:         dict
-    band_fluxes:        dict
-    bol_flux:           float
-    bol_mag:            float
-    interp_radius:      float
-    clamped:            bool
-    teff:               float
-    logg:               float
-    meta:               float
-    R:                  float
-    d:                  float
-    a_v:                float = 0.0
-    mag_system:         str   = "AB"
-    extinction_applied: bool  = False
+    wavelengths:           np.ndarray
+    surface_flux:          np.ndarray
+    observed_flux:         np.ndarray
+    magnitudes:            dict
+    band_fluxes:           dict
+    bol_flux:              float
+    bol_mag:               float
+    nearest_grid_distance: float
+    clamped:               bool
+    teff:                  float
+    logg:                  float
+    meta:                  float
+    R:                     float
+    d:                     float
+    a_v:                   float = 0.0
+    mag_system:            str   = "AB"
+    extinction_applied:    bool  = False
 
     def __repr__(self) -> str:
         mags = ", ".join(f"{k}={v:.3f}" for k, v in self.magnitudes.items())
@@ -157,6 +159,7 @@ def run_forward(
     grid : AtmosphereGrid
     filters : list of Filter
     mag_system : {'AB', 'Vega', 'ST'}
+        Case-insensitive.
     interp_method : {'hermite', 'linear'}
     extinction : ExtinctionModel or None
         Applied after dilution and before filter convolution.
@@ -166,6 +169,11 @@ def run_forward(
     theta : array-like or None
         Required when fit_params is provided.
     """
+    if R is None:
+        raise ValueError("R (stellar radius in cm) is always required.")
+
+    cc = get_cc_api(required=True)
+
     # ------------------------------------------------------------------
     # Resolve parameters from whichever calling convention is used
     # ------------------------------------------------------------------
@@ -179,48 +187,34 @@ def run_forward(
         d_use = float(p['d'])
         av    = float(p['a_v'])
     else:
-        if any(x is None for x in (teff, logg, meta, R, d, grid, filters)):
+        if any(x is None for x in (teff, logg, meta, d, grid, filters)):
             raise ValueError(
-                "teff, logg, meta, R, d, grid, and filters must all be "
-                "supplied when fit_params is not used."
+                "teff, logg, meta, d, grid, and filters must all be supplied "
+                "when fit_params is not used."
             )
         d_use = float(d)
         av    = 0.0
 
-    cc = _get_cc_api()
-
-    # ------------------------------------------------------------------
-    # Compute interp_radius and clamped flag via grid helpers
-    # (same logic as the original forward.py before the extinction rewrite)
-    # ------------------------------------------------------------------
-    clamped    = not grid.in_bounds(teff, logg, meta)
-    interp_rad = grid.interp_radius(teff, logg, meta)
-    teff_q, logg_q, meta_q = grid.clamp(teff, logg, meta)
-
     # ------------------------------------------------------------------
     # 1. SED interpolation (Fortran)
-    #
-    # cc.interp_sed_hermite / interp_sed_linear return (result_flux, ierr).
-    # The flux array is C-contiguous float64; Fortran expects the cube as
-    # (nt, nl, nm, nw) which is grid.flux's native shape.
     # ------------------------------------------------------------------
-    flux_cube  = np.asfortranarray(grid.flux, dtype=np.float64)
-    teff_grid  = np.ascontiguousarray(grid.teff_grid,   dtype=np.float64)
-    logg_grid  = np.ascontiguousarray(grid.logg_grid,   dtype=np.float64)
-    meta_grid  = np.ascontiguousarray(grid.meta_grid,   dtype=np.float64)
-    wavelengths = np.ascontiguousarray(grid.wavelengths, dtype=np.float64)
+    clamped  = not grid.in_bounds(teff, logg, meta)
+    grid_dist = grid.nearest_grid_distance(teff, logg, meta)
+    teff_q, logg_q, meta_q = grid.clamp(teff, logg, meta)
 
+    # grid.flux_fortran is pre-computed at load time — zero-copy to Fortran.
+    # The axis arrays are already float64 C-contiguous from load_grid.
     if interp_method == "hermite":
         surface_flux, ierr = cc.interp_sed_hermite(
             teff_q, logg_q, meta_q,
-            teff_grid, logg_grid, meta_grid,
-            flux_cube,
+            grid.teff_grid, grid.logg_grid, grid.meta_grid,
+            grid.flux_fortran,
         )
     elif interp_method == "linear":
         surface_flux, ierr = cc.interp_sed_linear(
             teff_q, logg_q, meta_q,
-            teff_grid, logg_grid, meta_grid,
-            flux_cube,
+            grid.teff_grid, grid.logg_grid, grid.meta_grid,
+            grid.flux_fortran,
         )
     else:
         raise ValueError(
@@ -240,58 +234,52 @@ def run_forward(
     # 3. Extinction (Python, optional)
     #
     # Applied AFTER dilution, BEFORE filter convolution.
-    # Physics: star → distance → dust column → telescope → filter.
-    #
     # When Av is a free parameter, rebuild the ExtinctionModel with the
     # Av value from theta so every likelihood call uses the correct value.
     # ------------------------------------------------------------------
     extinction_applied = False
     if extinction is not None and getattr(extinction.config, 'enabled', False):
         if fit_params is not None:
-            from dataclasses import replace as _replace
-            from .sed_extinction import ExtinctionModel as _EM
-            # In FitParams mode, FitParams is the source of truth for Av,
-            # whether Av is fixed or free.  This prevents the fixed Av in
-            # FitParams and the Av stored in ExtinctionModel from drifting apart.
-            new_cfg = _replace(extinction.config, a_v=av)
-            extinction = _EM(new_cfg)
+            extinction = extinction.with_av(av)
 
-        observed_flux      = extinction.apply(wavelengths, observed_flux)
+        observed_flux      = extinction.apply(grid.wavelengths, observed_flux)
         extinction_applied = True
         av                 = extinction.config.a_v
 
     # ------------------------------------------------------------------
     # 4. Bolometric quantities (Fortran)
     # ------------------------------------------------------------------
-    bol_flux, bol_mag, _ = cc.bolometric(wavelengths, observed_flux)
+    bol_flux, bol_mag, bol_ierr = cc.bolometric(grid.wavelengths, observed_flux)
+    if bol_ierr != 0:
+        clamped = True
 
     # ------------------------------------------------------------------
     # 5. Synthetic photometry per filter (Fortran)
+    #
+    # Filter arrays are float64 C-contiguous from load_filters — no copy needed.
     # ------------------------------------------------------------------
     magnitudes:  dict = {}
     band_fluxes: dict = {}
 
     for filt in filters:
-        zp         = filt.zero_point(mag_system)
-        filt_wave  = np.ascontiguousarray(filt.wavelengths,  dtype=np.float64)
-        filt_trans = np.ascontiguousarray(filt.transmission, dtype=np.float64)
-        mag, band_flux, _ = cc.synthetic_magnitude(
-            wavelengths, observed_flux,
-            filt_wave, filt_trans,
+        zp = filt.zero_point(mag_system)
+        mag, band_flux, mag_ierr = cc.synthetic_magnitude(
+            grid.wavelengths, observed_flux,
+            filt.wavelengths, filt.transmission,
             zp,
         )
-        magnitudes[filt.name]  = float(mag)
+        magnitudes[filt.name]  = float(mag) if mag_ierr == 0 else float('nan')
         band_fluxes[filt.name] = float(band_flux)
 
     return ForwardResult(
-        wavelengths=wavelengths,
+        wavelengths=grid.wavelengths,
         surface_flux=surface_flux,
         observed_flux=observed_flux,
         magnitudes=magnitudes,
         band_fluxes=band_fluxes,
         bol_flux=float(bol_flux),
         bol_mag=float(bol_mag),
-        interp_radius=float(interp_rad),
+        nearest_grid_distance=float(grid_dist),
         clamped=clamped,
         teff=float(teff),
         logg=float(logg),

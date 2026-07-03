@@ -14,14 +14,12 @@ Apply extinction to a spectrum before filter convolution::
 
     from sed_extinction import ExtinctionModel
 
-    ext = ExtinctionModel(law='fitzpatrick99', r_v=3.1, a_v=0.3,
-                          distance_pc=100.0)
+    ext = ExtinctionModel(law='fitzpatrick99', r_v=3.1, a_v=0.3)
     flux_obs = ext.apply(wavelength_aa, flux_intrinsic)
 
 Or use it purely as a forward-model modifier inside a fitter::
 
-    ext = ExtinctionModel(law='ccm89', r_v=3.1, a_v=0.0,   # disabled
-                          distance_pc=1.0, enabled=False)
+    ext = ExtinctionModel(law='ccm89', r_v=3.1, a_v=0.0, enabled=False)
 
     # later, at evaluation time:
     flux_obs = ext.apply(wave, flux)   # returns flux unchanged when disabled
@@ -34,16 +32,6 @@ Supported laws
 'fm07'           Fitzpatrick & Massa (2007) ApJ 663 320  (R_V = 3.1 fixed)
 'calzetti00'     Calzetti et al. (2000) ApJ 533 682  (starburst galaxies)
 'gordon23'       Gordon et al. (2023) ApJ 950 86   (piecewise, MW/SMC/LMC)
-
-Distance scaling
-----------------
-The module also applies distance dimming so that
-    F_obs = F_intrinsic * (R_star / distance)^2
-but ONLY when ``scale_distance`` is True (default False).  Both Av and
-distance are *not* fitted by default — they are fixed parameters passed
-at construction time.  To use them in a fit set ``enabled=True`` and
-pass the appropriate a_v / distance_pc when constructing the model for
-each likelihood evaluation.
 
 Convention
 ----------
@@ -58,8 +46,7 @@ returned by the chosen law.
 
 from __future__ import annotations
 
-import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
@@ -92,13 +79,10 @@ AVAILABLE_LAWS = (
     "gordon23",
 )
 
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-_PC_TO_CM = 3.085677581491367e18   # 1 parsec in cm
-_RSUN_CM  = 6.957e10               # 1 R_sun in cm
-
 
 def _aa_to_invum(wave_aa: np.ndarray) -> np.ndarray:
     """Angstroms → inverse microns."""
@@ -138,7 +122,6 @@ def _ccm89_ab(x: np.ndarray):
         am = 1.752 - 0.316*xm - (0.104 / (ya*ya + 0.341))
         yb = xm - 4.62
         bm = -3.090 + 1.825*xm + (1.206 / (yb*yb + 0.263))
-        # Far-UV bump correction
         m2 = xm > 5.9
         if m2.any():
             y2 = xm[m2] - 5.9
@@ -190,7 +173,6 @@ def _od94_ab(x: np.ndarray):
     """Return (a, b) arrays for O'Donnell (1994) at x in inverse microns."""
     a, b = _ccm89_ab(x)
 
-    # Replace optical segment only
     m = (x >= 1.1) & (x < 3.3)
     if m.any():
         y = x[m] - 1.82
@@ -229,13 +211,11 @@ def odonnell94(wave: np.ndarray, a_v: float, r_v: float = 3.1) -> np.ndarray:
 # Fitzpatrick (1999)  — R_V-dependent cubic spline
 # ---------------------------------------------------------------------------
 
-# Spline knot x-positions (inverse microns)
 _F99_XKNOTS = np.array([0.0,
                          1e4/26500., 1e4/12200., 1e4/6000.,
                          1e4/5470.,  1e4/4670.,  1e4/4110.,
                          1e4/2700.,  1e4/2600.])
 
-# UV constants
 _F99_X0    = 4.596
 _F99_GAMMA = 0.99
 _F99_C3    = 3.23
@@ -267,39 +247,36 @@ def _f99_kknots(r_v: float) -> np.ndarray:
     return k
 
 
-def _natural_cubic_spline(x_knots: np.ndarray, y_knots: np.ndarray,
-                           x_eval: np.ndarray) -> np.ndarray:
-    """Evaluate a natural cubic spline (scipy-free) at x_eval."""
-    from numpy.linalg import solve
-
-    n  = len(x_knots)
-    h  = np.diff(x_knots)
-    # Build tridiagonal system for second derivatives
-    A  = np.zeros((n, n))
+def _solve_spline_M(x_knots: np.ndarray, y_knots: np.ndarray) -> np.ndarray:
+    """Solve for the natural cubic spline second-derivative vector M."""
+    n   = len(x_knots)
+    h   = np.diff(x_knots)
+    A   = np.zeros((n, n))
     rhs = np.zeros(n)
     A[0, 0] = 1.0
     A[-1, -1] = 1.0
-    for i in range(1, n-1):
+    for i in range(1, n - 1):
         A[i, i-1] = h[i-1]
-        A[i, i]   = 2.0*(h[i-1]+h[i])
+        A[i, i]   = 2.0 * (h[i-1] + h[i])
         A[i, i+1] = h[i]
-        rhs[i]    = 3.0*((y_knots[i+1]-y_knots[i])/h[i]
-                          - (y_knots[i]-y_knots[i-1])/h[i-1])
-    M = solve(A, rhs)   # second derivatives
+        rhs[i]    = 3.0 * ((y_knots[i+1] - y_knots[i]) / h[i]
+                             - (y_knots[i] - y_knots[i-1]) / h[i-1])
+    return np.linalg.solve(A, rhs)
 
-    result = np.empty_like(x_eval)
-    for j, xv in enumerate(x_eval):
-        # find interval
-        idx = np.searchsorted(x_knots, xv, side='right') - 1
-        idx = np.clip(idx, 0, n-2)
-        dx  = xv - x_knots[idx]
-        hi  = h[idx]
-        a   = y_knots[idx]
-        b   = (y_knots[idx+1]-y_knots[idx])/hi - hi*(2*M[idx]+M[idx+1])/3.0
-        c   = M[idx]
-        d   = (M[idx+1]-M[idx])/(3.0*hi)
-        result[j] = a + b*dx + c*dx**2 + d*dx**3
-    return result
+
+def _eval_spline(x_knots: np.ndarray, y_knots: np.ndarray,
+                 M: np.ndarray, x_eval: np.ndarray) -> np.ndarray:
+    """Vectorised evaluation of a natural cubic spline given pre-solved M."""
+    h   = np.diff(x_knots)
+    idx = np.searchsorted(x_knots, x_eval, side='right') - 1
+    idx = np.clip(idx, 0, len(x_knots) - 2)
+    dx  = x_eval - x_knots[idx]
+    hi  = h[idx]
+    a   = y_knots[idx]
+    b   = (y_knots[idx + 1] - y_knots[idx]) / hi - hi * (2.0*M[idx] + M[idx+1]) / 3.0
+    c   = M[idx]
+    d   = (M[idx + 1] - M[idx]) / (3.0 * hi)
+    return a + b*dx + c*dx**2 + d*dx**3
 
 
 def fitzpatrick99(wave: np.ndarray, a_v: float, r_v: float = 3.1) -> np.ndarray:
@@ -326,15 +303,15 @@ def fitzpatrick99(wave: np.ndarray, a_v: float, r_v: float = 3.1) -> np.ndarray:
     wave  = np.asarray(wave, dtype=np.float64)
     x     = _aa_to_invum(wave)
     k_knots = _f99_kknots(r_v)
+    M       = _solve_spline_M(_F99_XKNOTS, k_knots)
 
-    # Optical/IR knots via spline (x <= 1e4/2700)
     opt_mask = x <= _F99_XKNOTS[7]
     uv_mask  = ~opt_mask
 
     result = np.empty_like(x)
 
     if opt_mask.any():
-        k_opt = _natural_cubic_spline(_F99_XKNOTS, k_knots, x[opt_mask])
+        k_opt = _eval_spline(_F99_XKNOTS, k_knots, M, x[opt_mask])
         result[opt_mask] = a_v / r_v * (k_opt + r_v)
 
     if uv_mask.any():
@@ -354,6 +331,8 @@ def fitzpatrick99(wave: np.ndarray, a_v: float, r_v: float = 3.1) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# Fitzpatrick & Massa (2007)
+# ---------------------------------------------------------------------------
 
 _FM07_R_V   = 3.1
 _FM07_X0    = 4.592
@@ -366,13 +345,13 @@ _FM07_C5    =  6.097
 _FM07_X02   = _FM07_X0**2
 _FM07_G2    = _FM07_GAMMA**2
 
-_FM07_XKNOTS_raw = np.array([0., 0.25, 0.50, 0.75, 1.,
-                               1e4/5530., 1e4/4000., 1e4/3300.,
-                               1e4/2700., 1e4/2600.])
+_FM07_XKNOTS = np.array([0., 0.25, 0.50, 0.75, 1.,
+                           1e4/5530., 1e4/4000., 1e4/3300.,
+                           1e4/2700., 1e4/2600.])
 
 
 def _fm07_kknots() -> np.ndarray:
-    x = _FM07_XKNOTS_raw
+    x = _FM07_XKNOTS
     k = np.empty(10)
     for i in range(5):
         k[i] = (-0.83 + 0.63*_FM07_R_V)*x[i]**1.84 - _FM07_R_V
@@ -386,7 +365,10 @@ def _fm07_kknots() -> np.ndarray:
     return k
 
 
+# Pre-compute FM07 knot values and spline M-vector at import time — the
+# knots are module-level constants so this solve is done exactly once.
 _FM07_KKNOTS = _fm07_kknots()
+_FM07_SPLINE_M = _solve_spline_M(_FM07_XKNOTS, _FM07_KKNOTS)
 
 
 def fm07(wave: np.ndarray, a_v: float) -> np.ndarray:
@@ -410,13 +392,13 @@ def fm07(wave: np.ndarray, a_v: float) -> np.ndarray:
     x     = _aa_to_invum(wave)
     ebv   = a_v / _FM07_R_V
 
-    opt_mask = x <= _FM07_XKNOTS_raw[8]   # <= 1e4/2700 Å (spline region)
+    opt_mask = x <= _FM07_XKNOTS[8]
     uv_mask  = ~opt_mask
 
     result = np.empty_like(x)
 
     if opt_mask.any():
-        k_opt = _natural_cubic_spline(_FM07_XKNOTS_raw, _FM07_KKNOTS, x[opt_mask])
+        k_opt = _eval_spline(_FM07_XKNOTS, _FM07_KKNOTS, _FM07_SPLINE_M, x[opt_mask])
         result[opt_mask] = ebv * (k_opt + _FM07_R_V)
 
     if uv_mask.any():
@@ -457,17 +439,15 @@ def calzetti00(wave: np.ndarray, a_v: float, r_v: float = 4.05) -> np.ndarray:
         Attenuation in magnitudes at each wavelength.
     """
     wave  = np.asarray(wave, dtype=np.float64)
-    w_um  = wave * 1e-4   # Angstroms → microns
+    w_um  = wave * 1e-4
 
     k = np.zeros_like(w_um)
 
-    # UV-optical: 0.12–0.63 µm
     m = (w_um >= 0.12) & (w_um < 0.63)
     if m.any():
         w = w_um[m]
         k[m] = (2.659*(-2.156 + 1.509/w - 0.198/w**2 + 0.011/w**3) + r_v)
 
-    # Optical-NIR: 0.63–2.2 µm
     m = (w_um >= 0.63) & (w_um <= 2.2)
     if m.any():
         w = w_um[m]
@@ -480,29 +460,18 @@ def calzetti00(wave: np.ndarray, a_v: float, r_v: float = 4.05) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Gordon et al. (2023)  — native implementation
 # ---------------------------------------------------------------------------
-# Reference: Gordon, K. D. et al. 2023, ApJ, 950, 86
-# The law is a piecewise analytic function calibrated on a large sample of
-# MW, LMC and SMC sightlines.  For the MW average (the default used here)
-# the functional form follows the updated FM parametrization, with
-# coefficients from Table 3 of Gordon+2023.
-# The implementation below uses the MW average coefficients.  Optional keyword
-# ``environment`` allows switching to LMC or SMC average curves.
 
 _G23_PARAMS = {
-    # MW average  (Gordon+2023 Table 3, row "Average MW")
     'mw': dict(
         c1=-0.890, c2=0.998, c3=2.719, c4=0.400, c5=5.7,
         x0=4.592, gamma=0.922, r_v=3.17,
-        # IR power law: k(x) = c6 * x^alpha for x < 1/3 µm^-1
         c6=0.300, alpha=1.84,
     ),
-    # LMC average  (Gordon+2023 Table 3, row "Average LMC")
     'lmc': dict(
         c1=-1.475, c2=1.132, c3=1.463, c4=0.294, c5=5.9,
         x0=4.558, gamma=0.945, r_v=3.41,
         c6=0.389, alpha=1.84,
     ),
-    # SMC bar average  (Gordon+2023 Table 3, row "SMC Bar")
     'smc': dict(
         c1=-4.959, c2=2.264, c3=0.389, c4=0.461, c5=5.9,
         x0=4.600, gamma=1.000, r_v=2.74,
@@ -546,36 +515,34 @@ def gordon23(wave: np.ndarray, a_v: float, r_v: Optional[float] = None,
     rv  = r_v if r_v is not None else p['r_v']
 
     wave = np.asarray(wave, dtype=np.float64)
-    x    = _aa_to_invum(wave)    # inverse microns
+    x    = _aa_to_invum(wave)
     k    = np.zeros_like(x)
 
-    # --- IR: x < 1/3 µm⁻¹  (> 3 µm) — power law ---
-    m = x < (1.0/3.0)
-    if m.any():
-        k[m] = c6 * x[m]**alpha - rv
+    ir_mask = x < (1.0 / 3.0)
+    if ir_mask.any():
+        k[ir_mask] = c6 * x[ir_mask]**alpha - rv
 
-    # --- Optical+UV: x >= 1/3 µm⁻¹ ---
-    m = ~m
-    if m.any():
-        xm   = x[m]
-        xm2  = xm**2
-        g2   = gamma**2
-        x02  = x0**2
-        d    = xm2 / ((xm2 - x02)**2 + xm2*g2)
-        k[m] = c1 + c2*xm + c3*d
+    opt_uv_mask = ~ir_mask
+    if opt_uv_mask.any():
+        xm  = x[opt_uv_mask]
+        xm2 = xm**2
+        g2  = gamma**2
+        x02 = x0**2
+        d   = xm2 / ((xm2 - x02)**2 + xm2*g2)
+        k_uv = c1 + c2*xm + c3*d
 
-        # Far-UV non-linear term
-        fuv  = xm > c5
+        fuv = xm > c5
         if fuv.any():
             y = xm[fuv] - c5
-            k[m][fuv] += c4*(0.5392*y**2 + 0.05644*y**3)
+            k_uv[fuv] += c4*(0.5392*y**2 + 0.05644*y**3)
 
-    # Convert k → A(λ) = a_v/r_v * (k + r_v)
+        k[opt_uv_mask] = k_uv
+
     return a_v / rv * (k + rv)
 
 
 # ---------------------------------------------------------------------------
-# apply / remove helpers  (mirrors extinction package API)
+# apply / remove helpers
 # ---------------------------------------------------------------------------
 
 def apply_extinction(a_lambda: np.ndarray, flux: np.ndarray) -> np.ndarray:
@@ -624,10 +591,7 @@ def remove_extinction(a_lambda: np.ndarray, flux: np.ndarray) -> np.ndarray:
 
 @dataclass
 class ExtinctionConfig:
-    """Configuration container for extinction + distance settings.
-
-    All parameters are fixed (not fitted) unless you rebuild the object
-    for each likelihood evaluation in your fitter.
+    """Configuration container for extinction settings.
 
     Parameters
     ----------
@@ -642,21 +606,12 @@ class ExtinctionConfig:
         V-band extinction in magnitudes.  Default 0.0.
     gordon23_env : str
         Only used when ``law='gordon23'``.  One of 'mw', 'lmc', 'smc'.
-    distance_pc : float
-        Distance in parsecs.  Default 1.0 (no dilution applied unless
-        ``scale_distance`` is True and a stellar radius is provided).
-    scale_distance : bool
-        If True, multiply the flux by (R_star_cm / distance_cm)^2
-        where R_star_cm must be supplied to ``ExtinctionModel.apply()``.
-        Default False.
     """
-    enabled: bool       = False
-    law: str            = 'fitzpatrick99'
-    r_v: float          = 3.1
-    a_v: float          = 0.0
-    gordon23_env: str   = 'mw'
-    distance_pc: float  = 1.0
-    scale_distance: bool = False
+    enabled: bool      = False
+    law: str           = 'fitzpatrick99'
+    r_v: float         = 3.1
+    a_v: float         = 0.0
+    gordon23_env: str  = 'mw'
 
     def __post_init__(self) -> None:
         if self.law not in AVAILABLE_LAWS:
@@ -666,8 +621,22 @@ class ExtinctionConfig:
             )
         if self.a_v < 0.0:
             raise ValueError("a_v must be >= 0")
-        if self.distance_pc <= 0.0:
-            raise ValueError("distance_pc must be > 0")
+
+
+# ---------------------------------------------------------------------------
+# Law dispatch table — unified signature (wave, av, rv, env)
+# ---------------------------------------------------------------------------
+
+_LAW_DISPATCH = {
+    'ccm89':         lambda w, av, rv, env: ccm89(w, av, rv),
+    'odonnell94':    lambda w, av, rv, env: odonnell94(w, av, rv),
+    'fitzpatrick99': lambda w, av, rv, env: fitzpatrick99(w, av, rv),
+    'fm07':          lambda w, av, rv, env: fm07(w, av),
+    'calzetti00':    lambda w, av, rv, env: calzetti00(w, av, rv),
+    # Pass rv=None when the user left r_v at the generic default (3.1) so
+    # gordon23 uses its own environment-specific R_V instead of 3.1.
+    'gordon23':      lambda w, av, rv, env: gordon23(w, av, None if rv == 3.1 else rv, env),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -675,7 +644,7 @@ class ExtinctionConfig:
 # ---------------------------------------------------------------------------
 
 class ExtinctionModel:
-    """Apply extinction and (optionally) distance scaling to a spectrum.
+    """Apply extinction to a spectrum.
 
     Parameters
     ----------
@@ -692,16 +661,14 @@ class ExtinctionModel:
         ext = ExtinctionModel()
         flux_out = ext.apply(wave, flux)
 
-    Enabled, Fitzpatrick99, Av=0.5 at 200 pc::
+    Enabled, Fitzpatrick99, Av=0.5::
 
-        ext = ExtinctionModel(enabled=True, law='fitzpatrick99',
-                              a_v=0.5, r_v=3.1, distance_pc=200.)
+        ext = ExtinctionModel(enabled=True, law='fitzpatrick99', a_v=0.5, r_v=3.1)
         flux_obs = ext.apply(wave, flux)
 
     Gordon+2023 SMC curve::
 
-        ext = ExtinctionModel(enabled=True, law='gordon23',
-                              a_v=0.8, gordon23_env='smc')
+        ext = ExtinctionModel(enabled=True, law='gordon23', a_v=0.8, gordon23_env='smc')
         flux_obs = ext.apply(wave, flux)
     """
 
@@ -711,7 +678,6 @@ class ExtinctionModel:
         if config is None:
             config = ExtinctionConfig(**kwargs)
         elif kwargs:
-            # merge kwargs on top of config
             import dataclasses
             d = dataclasses.asdict(config)
             d.update(kwargs)
@@ -738,32 +704,11 @@ class ExtinctionModel:
         wave = np.asarray(wave, dtype=np.float64)
         if not self.config.enabled or self.config.a_v == 0.0:
             return np.zeros(len(wave))
+        fn = _LAW_DISPATCH[self.config.law]
+        return fn(wave, self.config.a_v, self.config.r_v, self.config.gordon23_env)
 
-        law = self.config.law
-        av  = self.config.a_v
-        rv  = self.config.r_v
-
-        if law == 'ccm89':
-            return ccm89(wave, av, rv)
-        elif law == 'odonnell94':
-            return odonnell94(wave, av, rv)
-        elif law == 'fitzpatrick99':
-            return fitzpatrick99(wave, av, rv)
-        elif law == 'fm07':
-            return fm07(wave, av)
-        elif law == 'calzetti00':
-            return calzetti00(wave, av, rv)
-        elif law == 'gordon23':
-            return gordon23(wave, av, rv if rv != 3.1 else None,
-                            self.config.gordon23_env)
-        else:
-            raise ValueError(f"Unknown law: {law}")
-
-    def apply(self,
-              wave: np.ndarray,
-              flux: np.ndarray,
-              r_star_cm: Optional[float] = None) -> np.ndarray:
-        """Apply extinction (and optionally distance scaling) to a flux.
+    def apply(self, wave: np.ndarray, flux: np.ndarray) -> np.ndarray:
+        """Apply extinction to a flux array.
 
         Parameters
         ----------
@@ -771,47 +716,22 @@ class ExtinctionModel:
             Wavelengths in Angstroms.
         flux : array_like
             Intrinsic flux in any linear unit.
-        r_star_cm : float, optional
-            Stellar radius in cm.  Required only when
-            ``config.scale_distance`` is True.
 
         Returns
         -------
         flux_out : ndarray
-            Processed flux.  If ``enabled`` is False this is identical to
-            the input flux (no copy is made if no operation is needed).
+            Extincted flux.  If ``enabled`` is False this is identical to
+            the input flux (no copy is made).
         """
         wave = np.asarray(wave, dtype=np.float64)
         flux = np.asarray(flux, dtype=np.float64)
-
         if not self.config.enabled:
             return flux
-
-        # 1. Extinction
         a_lam = self.extinction_curve(wave)
-        flux_out = apply_extinction(a_lam, flux)
+        return apply_extinction(a_lam, flux)
 
-        # 2. Distance dilution: F_obs = F_surface × (R / d)^2
-        if self.config.scale_distance:
-            if r_star_cm is None:
-                warnings.warn(
-                    "scale_distance=True but r_star_cm was not supplied; "
-                    "distance scaling skipped.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            else:
-                d_cm  = self.config.distance_pc * _PC_TO_CM
-                flux_out = flux_out * (r_star_cm / d_cm)**2
-
-        return flux_out
-
-    def remove(self,
-               wave: np.ndarray,
-               flux: np.ndarray) -> np.ndarray:
+    def remove(self, wave: np.ndarray, flux: np.ndarray) -> np.ndarray:
         """Remove (de-redden) extinction from an observed flux.
-
-        Distance scaling is NOT reversed here — this only undoes extinction.
 
         Parameters
         ----------
@@ -832,6 +752,11 @@ class ExtinctionModel:
         a_lam = self.extinction_curve(wave)
         return remove_extinction(a_lam, flux)
 
+    def with_av(self, a_v: float) -> "ExtinctionModel":
+        """Return a new ExtinctionModel identical to this one but with a different A_V."""
+        import dataclasses
+        return ExtinctionModel(dataclasses.replace(self.config, a_v=a_v))
+
     # ------------------------------------------------------------------
     # Convenience
     # ------------------------------------------------------------------
@@ -840,8 +765,7 @@ class ExtinctionModel:
         c = self.config
         if not c.enabled:
             return "ExtinctionModel(enabled=False)"
-        return (f"ExtinctionModel(law='{c.law}', a_v={c.a_v}, r_v={c.r_v}, "
-                f"distance_pc={c.distance_pc}, scale_distance={c.scale_distance})")
+        return (f"ExtinctionModel(law='{c.law}', a_v={c.a_v}, r_v={c.r_v})")
 
     @classmethod
     def disabled(cls) -> "ExtinctionModel":
@@ -863,8 +787,6 @@ def make_extinction_model(
     law: str = 'fitzpatrick99',
     r_v: float = 3.1,
     a_v: float = 0.0,
-    distance_pc: float = 1.0,
-    scale_distance: bool = False,
     gordon23_env: str = 'mw',
 ) -> ExtinctionModel:
     """Convenience factory — mirrors the ExtinctionConfig keyword signature.
@@ -886,10 +808,6 @@ def make_extinction_model(
         R_V (shape parameter).  Default 3.1.
     a_v : float
         V-band extinction.  Default 0.0.
-    distance_pc : float
-        Source distance in parsecs.  Default 1 pc (absolute flux, no dilution).
-    scale_distance : bool
-        Apply (R/d)^2 dilution.  Default False.
     gordon23_env : str
         Gordon+2023 environment preset: 'mw', 'lmc', or 'smc'.
 
@@ -902,7 +820,5 @@ def make_extinction_model(
         law=law,
         r_v=r_v,
         a_v=a_v,
-        distance_pc=distance_pc,
-        scale_distance=scale_distance,
         gordon23_env=gordon23_env,
     ))

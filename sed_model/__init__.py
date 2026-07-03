@@ -47,7 +47,7 @@ from .forward import run_forward, run_forward_batch, ForwardResult
 from .inverse import run_inverse
 from .io      import InverseResult, save_sed, save_magnitudes
 
-# Parameter specification — fixed, bounded, and free modes
+# Parameter specification — fixed, free, and bounded (alias for free) modes
 from .params import (
     FitParams,
     ParamSpec,
@@ -117,4 +117,4 @@ __all__ = [
     "AVAILABLE_LAWS",
 ]
 
-__version__ = "0.1.7"
+__version__ = "0.2.0"

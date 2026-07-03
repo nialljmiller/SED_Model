@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools<70", "wheel", "numpy<2.0", "meson", "ninja"]
+requires = ["setuptools<70", "wheel", "numpy>=2.0", "meson", "ninja"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "sed-model"
-version = "0.1.7"
+version = "0.2.0"
 description = "Forward and inverse stellar photometry from SED grids."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -34,7 +34,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "numpy>=1.22",
+    "numpy>=2.0",
     "pandas>=1.5",
     "emcee>=3.1",
 ]

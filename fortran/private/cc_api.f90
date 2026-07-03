@@ -1,56 +1,33 @@
 ! ***********************************************************************
-! cc_api.f90
+! fortran/private/cc_api.f90  —  NOT COMPILED
 !
-! Thin f2py-bindable wrappers around the private kernels.
+! This file is a legacy reference copy that routes through colors_lib.f90
+! (the public aggregation module).  It is NOT included in the Makefile or
+! meson.build build sources and is therefore never compiled.
 !
-! This file has no MESA counterpart -- MESA links colors_lib.f90
-! straight into the star binary, but SED_Model is called from Python,
-! and f2py needs a layer with no derived types, explicit array
-! dimensions on every dummy argument, and intent annotations
-! everywhere. That adapter role is all this file does now; the actual
-! numerics live in fortran/private/{hermite_interp,linear_interp,
-! colors_utils,synthetic,bolometric}.f90 and fortran/public/colors_lib.f90,
-! structured to mirror colors/private and colors/public in MESA.
+! The file that IS compiled is fortran/cc_api.f90 (one level up), which
+! uses the private kernels directly.  That workaround exists because the
+! pinned f2py cannot wrap a module that only re-exports procedures from
+! other modules (see fortran/cc_api.f90 header and MIGRATION.md).
 !
-! This file `use`s the private kernels directly rather than going
-! through public/colors_lib.f90. colors_lib.f90 still exists and still
-! plays MESA's aggregation role for any plain-Fortran caller -- but
-! the numpy<2.0 f2py toolchain this project's pyproject.toml pins
-! cannot wrap a module that only re-exports procedures from other
-! modules (it tries to generate a Python getter for each public name
-! as if it were a module variable, and crashes with KeyError('void')
-! the moment it hits one that's actually a re-exported subroutine).
-! colors_def, hermite_interp, linear_interp, colors_utils, synthetic,
-! and bolometric all define their own procedures directly, so f2py
-! correctly recognises they're only `use`d elsewhere and skips
-! building module bindings for them. Verified against a real
-! `pip install -e .` under the pinned numpy<2.0 -- see MIGRATION.md.
-!
-! The public subroutine names and signatures below are UNCHANGED from
-! the pre-restructure cc_api.f90, so the compiled extension's Python
-! surface -- and every existing call site in sed_model/*.py -- is
-! unaffected by this restructure.
-!
-! Python import after building:
-!   import cc_api
-!   cc_api.cc_api.interp_sed_hermite(teff, logg, meta, teff_grid, logg_grid,
-!                                    meta_grid, flux_cube, result_flux, ierr)
+! This copy is kept for reference only.  All changes to the compiled API
+! must go into fortran/cc_api.f90, NOT this file.
 ! ***********************************************************************
 
 module cc_api
-   use colors_def,     only: dp, BAD_MAG
-   use hermite_interp,  only: hermite_interp_vector
-   use linear_interp,   only: trilinear_interp_vector
-   use colors_utils,    only: lib_dilute_flux    => dilute_flux, &
-                               lib_trapz          => trapezoidal_integration, &
-                               lib_simpson        => simpson_integration, &
-                               lib_interp_filter  => interp_filter_onto_sed
-   use synthetic,        only: lib_synthetic_flux => calculate_synthetic_flux, &
-                               lib_magnitude      => magnitude, &
-                               lib_vega_zp        => compute_vega_zero_point, &
-                               lib_ab_zp          => compute_ab_zero_point, &
-                               lib_st_zp          => compute_st_zero_point
-   use bolometric,       only: lib_bol_phot       => calculate_bolometric_phot
+   use colors_lib, only: dp, &
+      hermite_interp_vector, &
+      trilinear_interp_vector, &
+      lib_dilute_flux    => dilute_flux, &
+      lib_trapz          => trapezoidal_integration, &
+      lib_simpson        => simpson_integration, &
+      lib_interp_filter  => interp_filter_onto_sed, &
+      lib_synthetic_flux => calculate_synthetic_flux, &
+      lib_magnitude      => magnitude, &
+      lib_bol_phot       => calculate_bolometric_phot, &
+      lib_vega_zp        => compute_vega_zero_point, &
+      lib_ab_zp          => compute_ab_zero_point, &
+      lib_st_zp          => compute_st_zero_point
 
    implicit none
    private
@@ -186,12 +163,12 @@ contains
 
       call lib_interp_filter(filt_wave, filt_trans, sed_wave, filt_on_sed, ierr)
       if (ierr /= 0) then
-         mag = BAD_MAG; band_flux = -1.0_dp; return
+         mag = -99.9_dp; band_flux = -1.0_dp; return
       end if
 
       call lib_synthetic_flux(sed_wave, obs_flux * filt_on_sed, filt_on_sed, band_flux)
       if (band_flux <= 0.0_dp) then
-         mag = BAD_MAG; ierr = 1; return
+         mag = -99.9_dp; ierr = 1; return
       end if
 
       call lib_magnitude(band_flux, zero_point, mag, ierr2)

@@ -211,9 +211,11 @@ class TestPosteriorRecovery:
             grid=grid, filters=filters,
             mag_system="AB",
             n_walkers=16, n_steps=500, n_burn=150,
-            p0_teff=solar_obs["true_teff"],
-            p0_logg=solar_obs["true_logg"],
-            p0_meta=solar_obs["true_meta"],
+            p0_centre={
+                'teff': solar_obs["true_teff"],
+                'logg': solar_obs["true_logg"],
+                'meta': solar_obs["true_meta"],
+            },
             p0_scatter=0.03,
             progress=False, seed=42,
         )

@@ -16,7 +16,7 @@ This bidirectionality is concrete, not cosmetic:
 Parameter modes
 ---------------
 Every physical quantity — Teff, logg, [M/H], Av, distance — is described
-by a ``ParamSpec`` inside a ``FitParams``.  Three behaviours:
+by a ``ParamSpec`` inside a ``FitParams``.  Two behaviours:
 
 ``fixed(value)``
     Not sampled.  Passed unchanged to the forward model at every step.
@@ -171,12 +171,10 @@ def run_inverse(
     n_burn:            int   = 500,
     n_thin:            int   = 1,
     p0_centre:         Optional[dict] = None,
-    p0_teff:           Optional[float] = None,
-    p0_logg:           Optional[float] = None,
-    p0_meta:           Optional[float] = None,
     p0_scatter:        float = 0.02,
     seed:              Optional[int]  = None,
     progress:          bool  = True,
+    verbose:           bool  = True,
 ) -> InverseResult:
     """Infer stellar parameters from observed broadband photometry.
 
@@ -199,6 +197,10 @@ def run_inverse(
         Distance in cm.  Used only when ``fit_params`` is None to build a
         default ``FitParams`` with fixed distance.  If ``fit_params`` is
         supplied this argument is ignored — set distance via fit_params.
+    extinction_law : str or None
+        Convenience shorthand used to build a default extinction model when
+        both ``fit_params`` and ``extinction`` are None and Av is active.
+        Ignored (with a warning) when ``fit_params`` is supplied.
     extinction : ExtinctionModel or None
         Dust extinction model.  Required if Av is free in fit_params.
         Ignored if Av is fixed at 0.
@@ -213,6 +215,10 @@ def run_inverse(
         Width of initial ball as fraction of each parameter's range.
     seed : int or None
     progress : bool
+        Show the emcee progress bar.
+    verbose : bool
+        Print the parameter summary and extinction configuration before
+        sampling.  Set to False for batch runs.
 
     Returns
     -------
@@ -229,7 +235,7 @@ def run_inverse(
     # ------------------------------------------------------------------
     # Input validation
     # ------------------------------------------------------------------
-    obs_mag = np.asarray(obs_magnitudes,   dtype=np.float64)
+    obs_mag = np.asarray(obs_magnitudes,    dtype=np.float64)
     obs_err = np.asarray(obs_uncertainties, dtype=np.float64)
 
     if obs_mag.shape != obs_err.shape:
@@ -264,6 +270,13 @@ def run_inverse(
     if fit_params is None:
         d_cm = d if d is not None else PC_TO_CM
         fit_params = fit_params_from_grid(grid, d_cm=d_cm)
+    elif extinction_law is not None:
+        warnings.warn(
+            "extinction_law is ignored when fit_params is provided. "
+            "Configure the extinction law via the extinction parameter instead.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     n_dim = fit_params.n_free
     if n_dim == 0:
@@ -278,8 +291,7 @@ def run_inverse(
         )
 
     # ------------------------------------------------------------------
-    # Build a default extinction model if Av is active but the caller did
-    # not provide one.
+    # Build a default extinction model if Av is active but none provided.
     # ------------------------------------------------------------------
     av_active = fit_params.a_v.is_free or (fit_params.a_v.is_fixed and fit_params.a_v.value > 0.0)
     if extinction is None and av_active:
@@ -291,34 +303,26 @@ def run_inverse(
         )
 
     # ------------------------------------------------------------------
-    # Log what is being sampled vs fixed
+    # Optionally log what is being sampled vs fixed
     # ------------------------------------------------------------------
-    print(fit_params.summary())
-    if extinction is not None and getattr(extinction.config, 'enabled', False):
-        cfg = extinction.config
-        av_mode = "free (sampled)" if fit_params.a_v.is_free else f"fixed={fit_params.a_v.value:.3f}"
-        print(
-            f"[inverse] Extinction: law={cfg.law}, Rv={cfg.r_v:.2f}, "
-            f"Av {av_mode}"
-        )
-    else:
-        print("[inverse] Extinction: disabled")
+    if verbose:
+        print(fit_params.summary())
+        if extinction is not None and getattr(extinction.config, 'enabled', False):
+            cfg = extinction.config
+            av_mode = "free (sampled)" if fit_params.a_v.is_free else f"fixed={fit_params.a_v.value:.3f}"
+            print(
+                f"[inverse] Extinction: law={cfg.law}, Rv={cfg.r_v:.2f}, "
+                f"Av {av_mode}"
+            )
+        else:
+            print("[inverse] Extinction: disabled")
 
     # ------------------------------------------------------------------
     # Initial walker positions
-    # Merge individual p0_teff/logg/meta kwargs into p0_centre dict.
-    # p0_centre takes precedence; individual kwargs are a convenience alias.
     # ------------------------------------------------------------------
-    centre: dict = {}
-    if p0_teff is not None: centre['teff'] = p0_teff
-    if p0_logg is not None: centre['logg'] = p0_logg
-    if p0_meta is not None: centre['meta'] = p0_meta
-    if p0_centre:
-        centre.update(p0_centre)   # p0_centre wins on conflict
-
     rng = np.random.default_rng(seed)
     p0  = fit_params.initial_ball(
-        n_walkers, centre=centre or None, scatter=p0_scatter, rng=rng
+        n_walkers, centre=p0_centre or None, scatter=p0_scatter, rng=rng
     )
 
     # ------------------------------------------------------------------
@@ -334,7 +338,6 @@ def run_inverse(
     )
     sampler.run_mcmc(p0, n_steps, progress=progress)
 
-    # Acceptance fraction diagnostic
     acc = sampler.acceptance_fraction
     if np.any(acc < 0.1) or np.any(acc > 0.9):
         warnings.warn(
@@ -352,7 +355,7 @@ def run_inverse(
     flat_samples  = sampler.get_chain(discard=n_burn, thin=n_thin, flat=True)
     flat_log_prob = sampler.get_log_prob(discard=n_burn, thin=n_thin, flat=True)
 
-    fixed_params = {name: fit_params._spec(name).value for name in fit_params.fixed_names}
+    fixed_params = {name: getattr(fit_params, name).value for name in fit_params.fixed_names}
 
     return InverseResult(
         samples=flat_samples,

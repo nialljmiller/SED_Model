@@ -29,6 +29,8 @@ from dataclasses import dataclass
 import numpy as np
 import matplotlib.pyplot as plt
 
+import sys
+
 from sed_model import (
     load_grid,
     load_filters,
@@ -41,6 +43,9 @@ from sed_model import (
     PC_TO_CM,
     RSUN_TO_CM,
 )
+
+sys.path.insert(0, str(Path(__file__).parent))
+from plot_utils import plot_posterior
 
 # =============================================================================
 # 1. Data paths: edit these once for your machine
@@ -103,10 +108,10 @@ RANDOM_SEED = 42
 
 FIT_CONFIG = {
     "teff": {"mode": "fit",   "bounds": (5200.0, 6400.0), "start": 5800.0},
-    "logg": {"mode": "fixed", "value": TRUE_STAR["logg"]},
-    "meta": {"mode": "fixed", "value": TRUE_STAR["meta"]},
+    "logg": {"mode": "fit", "bounds": (TRUE_STAR["logg"]*0.5,TRUE_STAR["logg"]*2.0)},
+    "meta": {"mode": "fit", "bounds": (TRUE_STAR["meta"]*0.5,TRUE_STAR["meta"]*2.0)},
     "a_v":  {"mode": "fit",   "bounds": (0.0, 1.5), "start": 0.5},
-    "d_pc": {"mode": "fixed", "value": TRUE_STAR["distance_pc"]},
+    "d_pc": {"mode": "fit", "bounds": (TRUE_STAR["distance_pc"]*0.5,TRUE_STAR["distance_pc"]*2.0)},
 }
 
 FIT_EXTINCTION = {
@@ -139,7 +144,7 @@ DISPLAY_NAMES = {
 }
 
 
-def _mode_to_spec(name: str, cfg: dict, grid=None):
+def _mode_to_spec(name: str, cfg: dict):
     """Convert the user-friendly FIT_CONFIG entry into a ParamSpec."""
     mode = cfg["mode"].lower()
     if mode == "fixed":
@@ -160,14 +165,14 @@ def _mode_to_spec(name: str, cfg: dict, grid=None):
     raise ValueError(f"Unknown mode for {name!r}: {cfg['mode']!r}. Use fixed or fit.")
 
 
-def build_fit_params(grid, fit_config: dict) -> FitParams:
+def build_fit_params(fit_config: dict) -> FitParams:
     """Build FitParams from the nice human config block."""
     return FitParams(
-        teff=_mode_to_spec("teff", fit_config["teff"], grid=grid),
-        logg=_mode_to_spec("logg", fit_config["logg"], grid=grid),
-        meta=_mode_to_spec("meta", fit_config["meta"], grid=grid),
-        a_v=_mode_to_spec("a_v", fit_config["a_v"], grid=grid),
-        d=_mode_to_spec("d", fit_config["d_pc"], grid=grid),
+        teff=_mode_to_spec("teff", fit_config["teff"]),
+        logg=_mode_to_spec("logg", fit_config["logg"]),
+        meta=_mode_to_spec("meta", fit_config["meta"]),
+        a_v=_mode_to_spec("a_v",  fit_config["a_v"]),
+        d=_mode_to_spec("d",      fit_config["d_pc"]),
     )
 
 
@@ -265,150 +270,6 @@ def plot_sed(truth, path="sed_playground_sed.png"):
 
 
 
-def _plot_samples_and_truths(posterior, fit_params, true_star):
-    samples = np.asarray(posterior.samples, dtype=float)
-    free_names = list(fit_params.free_names)
-
-    label_map = {
-        "teff": r"$T_{\rm eff}$ (K)",
-        "logg": r"$\log g$",
-        "meta": r"$[\rm M/H]$",
-        "a_v":  r"$A_V$ (mag)",
-        "d":    r"$d$ (pc)",
-    }
-
-    truth_map = {
-        "teff": true_star["teff"],
-        "logg": true_star["logg"],
-        "meta": true_star["meta"],
-        "a_v":  true_star["a_v"],
-        "d":    true_star["distance_pc"],
-    }
-
-    plot_samples = samples.copy()
-    for i, name in enumerate(free_names):
-        if name == "d":
-            plot_samples[:, i] = plot_samples[:, i] / PC_TO_CM
-
-    labels = [label_map.get(name, name) for name in free_names]
-    truths = [truth_map.get(name, None) for name in free_names]
-
-    return plot_samples, free_names, labels, truths
-
-
-def plot_posterior_diagnostics(
-    posterior,
-    fit_params,
-    true_star,
-    corner_path="inverse_corner.png",
-    trace_path="inverse_chains.png",
-):
-    plot_samples, free_names, labels, truths = _plot_samples_and_truths(
-        posterior, fit_params, true_star
-    )
-
-    npar = len(free_names)
-    if npar == 0:
-        print("No free parameters; skipping posterior plots.")
-        return
-
-    fig, axes = plt.subplots(npar, npar, figsize=(3.0 * npar, 3.0 * npar))
-
-    if npar == 1:
-        axes = np.array([[axes]])
-
-    fig.suptitle("Posterior distributions", fontsize=13)
-
-    for i in range(npar):
-        for j in range(npar):
-            ax = axes[i, j]
-
-            if i == j:
-                x = plot_samples[:, i]
-
-                ax.hist(
-                    x,
-                    bins=40,
-                    color="steelblue",
-                    alpha=0.7,
-                    density=True,
-                    edgecolor="none",
-                )
-
-                med = float(np.percentile(x, 50.0))
-                lo = float(np.percentile(x, 15.865))
-                hi = float(np.percentile(x, 84.135))
-
-                ax.axvline(med, color="navy", lw=1.5, label=f"median = {med:.4g}")
-                ax.axvline(lo, color="navy", lw=0.8, ls="--")
-                ax.axvline(hi, color="navy", lw=0.8, ls="--")
-
-                if truths[i] is not None:
-                    fmt = ".1f" if free_names[i] == "teff" else ".4g"
-                    ax.axvline(
-                        truths[i],
-                        color="crimson",
-                        lw=1.5,
-                        label=f"true = {truths[i]:{fmt}}",
-                    )
-
-                ax.set_xlabel(labels[i], fontsize=10)
-                ax.set_yticks([])
-                ax.legend(fontsize=7, loc="best")
-
-            elif i > j:
-                ax.scatter(
-                    plot_samples[:, j],
-                    plot_samples[:, i],
-                    s=2,
-                    alpha=0.12,
-                    color="steelblue",
-                    rasterized=True,
-                )
-
-                if truths[j] is not None and truths[i] is not None:
-                    ax.plot(truths[j], truths[i], "r+", ms=10, mew=1.5)
-
-                ax.set_xlabel(labels[j], fontsize=10)
-                ax.set_ylabel(labels[i], fontsize=10)
-
-            else:
-                ax.set_visible(False)
-
-    fig.tight_layout()
-    fig.savefig(corner_path, dpi=150, bbox_inches="tight")
-    print(f"Saved: {corner_path}")
-
-    if SHOW_PLOTS:
-        plt.show()
-    else:
-        plt.close(fig)
-
-    fig2, axes2 = plt.subplots(npar, 1, figsize=(10, 2.0 * npar), sharex=True)
-
-    if npar == 1:
-        axes2 = [axes2]
-
-    for i, ax in enumerate(axes2):
-        ax.plot(plot_samples[:, i], lw=0.4, alpha=0.6, color="steelblue")
-
-        if truths[i] is not None:
-            ax.axhline(truths[i], color="crimson", lw=1.2, ls="--")
-
-        ax.set_ylabel(labels[i], fontsize=10)
-        ax.grid(True, alpha=0.3)
-
-    axes2[-1].set_xlabel("Flattened posterior sample index", fontsize=10)
-    fig2.suptitle("Flattened posterior traces", fontsize=11)
-
-    fig2.tight_layout()
-    fig2.savefig(trace_path, dpi=150, bbox_inches="tight")
-    print(f"Saved: {trace_path}")
-
-    if SHOW_PLOTS:
-        plt.show()
-    else:
-        plt.close(fig2)
 
 # =============================================================================
 # Main
@@ -457,7 +318,7 @@ def main():
     obs_errs = np.full(len(filter_names), OBS_SIGMA)
     print_observations(filter_names, truth_mags, obs_mags, obs_errs)
 
-    fit_params = build_fit_params(grid, FIT_CONFIG)
+    fit_params = build_fit_params(FIT_CONFIG)
     p0_centre = build_p0_centre(FIT_CONFIG)
     fit_ext = make_fit_extinction_model(fit_params)
 
@@ -483,13 +344,14 @@ def main():
     print_dynamic_summary(posterior, fit_params.free_names, TRUE_STAR)
     plot_sed(truth)
 
-    plot_posterior_diagnostics(
-        posterior=posterior,
-        fit_params=fit_params,
-        true_star=TRUE_STAR,
-        corner_path="inverse_corner.png",
-        trace_path="inverse_chains.png",
-    )
+    truths = {
+        "teff": TRUE_STAR["teff"],
+        "logg": TRUE_STAR["logg"],
+        "meta": TRUE_STAR["meta"],
+        "a_v":  TRUE_STAR["a_v"],
+        "d":    TRUE_STAR["distance_pc"],
+    }
+    plot_posterior(posterior, "inverse_corner.png", "inverse_chains.png", truths=truths)
 
 
 if __name__ == "__main__":

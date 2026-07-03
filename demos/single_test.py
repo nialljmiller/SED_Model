@@ -89,11 +89,11 @@ ext_kwargs = dict(enabled=True, law=TRUE_LAW,      a_v=TRUE_AV, gordon23_env="mw
 # ---------------------------------------------------------------------------
 
 def posterior_stats(result: InverseResult):
-    """Return (median, lo_1sigma, hi_1sigma) for each of Teff, logg, meta."""
+    """Return (median, lo_1sigma, hi_1sigma) for each free parameter."""
     s = result.samples
-    med  = np.percentile(s, 50,   axis=0)
-    lo   = np.percentile(s, 15.87, axis=0)
-    hi   = np.percentile(s, 84.13, axis=0)
+    med = np.percentile(s, 50.0,    axis=0)
+    lo  = np.percentile(s, 15.865,  axis=0)
+    hi  = np.percentile(s, 84.135,  axis=0)
     return med, lo, hi
 
 
@@ -142,11 +142,6 @@ def main():
     for name, tm, om in zip(filter_names, [truth.magnitudes[n] for n in filter_names], obs_mags):
         print(f"  {name:12s}  {tm:8.4f}    {om:8.4f}")
 
-    # -----------------------------------------------------------------------
-    # Run one inverse fit per prescription
-    # -----------------------------------------------------------------------
-    results = {}
-
     print(f"\n{'='*60}")
     print(f"{'='*60}")
 
@@ -175,9 +170,7 @@ def main():
         n_steps=N_STEPS,
         n_burn=N_BURN,
         n_thin=N_THIN,
-        p0_teff=TRUE_TEFF,
-        p0_logg=TRUE_LOGG,
-        p0_meta=TRUE_META,
+        p0_centre={'teff': TRUE_TEFF, 'logg': TRUE_LOGG, 'meta': TRUE_META},
         p0_scatter=0.02,
         progress=True,
     )
