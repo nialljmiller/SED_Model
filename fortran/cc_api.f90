@@ -40,6 +40,7 @@
 module cc_api
    use colors_def,     only: dp, BAD_MAG
    use hermite_interp,  only: hermite_interp_vector
+   use hermite_interp_bounded, only: hermite_bounded_interp_vector
    use linear_interp,   only: trilinear_interp_vector
    use colors_utils,    only: lib_dilute_flux    => dilute_flux, &
                                lib_trapz          => trapezoidal_integration, &
@@ -56,6 +57,7 @@ module cc_api
    private
 
    public :: interp_sed_hermite
+   public :: interp_sed_hermite_bounded
    public :: interp_sed_linear
    public :: dilute_flux
    public :: synthetic_magnitude
@@ -98,6 +100,42 @@ contains
                                  teff_grid, logg_grid, meta_grid, &
                                  flux_cube, nw, result_flux, ierr)
    end subroutine interp_sed_hermite
+
+
+   ! -------------------------------------------------------------------------
+   ! interp_sed_hermite_bounded
+   !
+   ! Hermite interpolation with MESA's bounded safeguard: negligible negative
+   ! undershoot is clipped to zero, and an unusable Hermite SED falls back to
+   ! trilinear interpolation.  ierr: 0 = Hermite accepted, 1 = clamped or
+   ! linear fallback used, 2 = no valid SED could be produced.
+   ! -------------------------------------------------------------------------
+   subroutine interp_sed_hermite_bounded(teff, logg, meta, &
+                                         teff_grid, nt, &
+                                         logg_grid, nl, &
+                                         meta_grid, nm, &
+                                         flux_cube, nw, &
+                                         wavelengths, &
+                                         result_flux, ierr)
+      !f2py intent(in)  :: teff, logg, meta
+      !f2py intent(in)  :: teff_grid, logg_grid, meta_grid
+      !f2py intent(in)  :: nt, nl, nm, nw
+      !f2py intent(in)  :: flux_cube, wavelengths
+      !f2py intent(out) :: result_flux
+      !f2py intent(out) :: ierr
+      real(dp), intent(in)  :: teff, logg, meta
+      integer,  intent(in)  :: nt, nl, nm, nw
+      real(dp), intent(in)  :: teff_grid(nt), logg_grid(nl), meta_grid(nm)
+      real(dp), intent(in)  :: flux_cube(nt, nl, nm, nw)
+      real(dp), intent(in)  :: wavelengths(nw)
+      real(dp), intent(out) :: result_flux(nw)
+      integer,  intent(out) :: ierr
+
+      call hermite_bounded_interp_vector(teff, logg, meta, &
+                                         teff_grid, logg_grid, meta_grid, &
+                                         flux_cube, nw, wavelengths, &
+                                         result_flux, ierr)
+   end subroutine interp_sed_hermite_bounded
 
 
    ! -------------------------------------------------------------------------

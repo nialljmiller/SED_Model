@@ -22,8 +22,8 @@
 ! ***********************************************************************
 
 module bolometric
-   use colors_def, only: dp, BAD_MAG
-   use colors_utils, only: simpson_integration
+   use colors_def, only: dp, BAD_MAG, F_BOL_ZERO_POINT
+   use colors_utils, only: simpson_integration, is_finite
    implicit none
 
    private
@@ -31,20 +31,41 @@ module bolometric
 
 contains
 
-   ! Integrate the diluted SED over all wavelengths.
+   ! Integrate the diluted SED over all wavelengths.  As in MESA, samples with
+   ! a non-finite or non-positive wavelength, or a non-finite or negative flux,
+   ! are zeroed before integrating.
    subroutine bolometric_flux(sed_wave, obs_flux, bol_flux, ierr)
       real(dp), intent(in)  :: sed_wave(:), obs_flux(:)
       real(dp), intent(out) :: bol_flux
       integer,  intent(out) :: ierr
 
+      real(dp), allocatable :: clean_flux(:)
+      integer :: i
+
       ierr = 0
-      call simpson_integration(sed_wave, obs_flux, bol_flux)
+      if (size(sed_wave) /= size(obs_flux) .or. size(sed_wave) < 2) then
+         bol_flux = 0.0_dp
+         ierr = 1
+         return
+      end if
+
+      allocate (clean_flux(size(obs_flux)))
+      clean_flux = obs_flux
+      do i = 1, size(sed_wave)
+         if (.not. is_finite(sed_wave(i)) .or. sed_wave(i) <= 0.0_dp .or. &
+             .not. is_finite(clean_flux(i)) .or. clean_flux(i) < 0.0_dp) then
+            clean_flux(i) = 0.0_dp
+         end if
+      end do
+
+      call simpson_integration(sed_wave, clean_flux, bol_flux)
       if (bol_flux <= 0.0_dp) ierr = 1
    end subroutine bolometric_flux
 
 
-   ! Mag_bol = -2.5 * log10(F_bol)  [F_bol in erg/s/cm^2]
-   ! Matches the MESA colors convention: no additional zero-point.
+   ! Mag_bol = -2.5 * log10(F_bol / F_bol_0)  [F_bol in erg/s/cm^2]
+   ! F_bol_0 is the irradiance of an M_bol = 0 source (IAU 2015 B2), as in
+   ! MESA's const_def f_bol_zero_point.
    subroutine bolometric_magnitude(bol_flux, bol_mag, ierr)
       real(dp), intent(in)  :: bol_flux
       real(dp), intent(out) :: bol_mag
@@ -52,7 +73,7 @@ contains
 
       ierr = 0
       if (bol_flux > 0.0_dp) then
-         bol_mag = -2.5_dp * log10(bol_flux)
+         bol_mag = -2.5_dp * log10(bol_flux / F_BOL_ZERO_POINT)
       else
          bol_mag = BAD_MAG
          ierr = 1

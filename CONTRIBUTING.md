@@ -37,7 +37,7 @@ Large API changes, changes to the Fortran kernels, or changes to photometric zer
 git clone https://github.com/nialljmiller/SED_Model.git
 cd SED_Model
 python -m pip install -e ".[dev]"
-python setup.py build_ext --inplace
+python -m pip install -e .    # or: make
 ````
 
 Run tests with:

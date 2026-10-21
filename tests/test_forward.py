@@ -10,7 +10,7 @@ Reference configuration
   Filters   : Generic/Johnson  (B, I, J, M, R, U, V)
   System    : Vega
   Distance  : 10 pc  (3.0857e19 cm)
-  Interp    : hermite
+  Interp    : hermite_bounded
 
 Notes on reference values
 -------------------------
@@ -99,7 +99,7 @@ GROUP1_CASES = [
         "solar",
         5778.0, 4.44, 0.0, 1.0 * R_SUN,
         {
-            "Mag_bol": 16.2337837,
+            "Mag_bol": 4.73643618,
             "Flux_bol": 3.2098630e-07,
             "B": 5.4328315,
             "V": 4.7769811,
@@ -109,7 +109,7 @@ GROUP1_CASES = [
         "hot_ms",
         15000.0, 4.00, 0.0, 5.0 * R_SUN,
         {
-            "Mag_bol":  8.5957683,
+            "Mag_bol": -2.90157924,
             "Flux_bol": 3.6449592e-04,
             "B": -1.8453872,
             "V": -1.7077286,
@@ -119,7 +119,7 @@ GROUP1_CASES = [
         "cool_giant",
         4000.0, 2.00, 0.0, 20.0 * R_SUN,
         {
-            "Mag_bol": 11.3260468,
+            "Mag_bol": -0.171300795,
             "Flux_bol": 2.9483653e-05,
             "B":  2.1835469,
             "V":  0.7545416,
@@ -131,6 +131,11 @@ GROUP1_CASES = [
 # trapezoid (Python zero-points) vs Simpson (Fortran flux) integration.
 TOL_MAG  = 5e-2   # 0.05 mag
 TOL_FLUX = 0.02   # 2 % relative
+
+# Group 1 uses the same Fortran kernels as MESA and the same grid, so it is
+# held to near-machine agreement with colors/test/test_output.
+TOL_MAG_TIGHT  = 1e-5
+TOL_FLUX_TIGHT = 1e-5
 
 
 def _in_bounds(grid, teff, logg, meta):
@@ -165,9 +170,9 @@ class TestGroup1:
                 continue
             got = result.magnitudes[band]
             assert np.isfinite(got), f"{label}/{band}: non-finite"
-            assert abs(got - ref_mag) < TOL_MAG, (
+            assert abs(got - ref_mag) < TOL_MAG_TIGHT, (
                 f"{label}/{band}: got {got:.6f}, expected {ref_mag:.6f}, "
-                f"diff={abs(got-ref_mag):.2e} > tol={TOL_MAG:.2e}"
+                f"diff={abs(got-ref_mag):.2e} > tol={TOL_MAG_TIGHT:.2e}"
             )
 
     @pytest.mark.parametrize("label,teff,logg,meta,R,ref", GROUP1_CASES)
@@ -179,7 +184,7 @@ class TestGroup1:
                              R=R, d=D_10PC, grid=grid, filters=filters)
         ref_flux = ref["Flux_bol"]
         rel_err = abs(result.bol_flux - ref_flux) / ref_flux
-        assert rel_err < TOL_FLUX, (
+        assert rel_err < TOL_FLUX_TIGHT, (
             f"{label}: bol_flux={result.bol_flux:.4e}, expected={ref_flux:.4e}, "
             f"rel_err={rel_err:.2e}"
         )
@@ -192,7 +197,7 @@ class TestGroup1:
         result = run_forward(teff=teff, logg=logg, meta=meta,
                              R=R, d=D_10PC, grid=grid, filters=filters)
         ref_mag = ref["Mag_bol"]
-        assert abs(result.bol_mag - ref_mag) < TOL_MAG, (
+        assert abs(result.bol_mag - ref_mag) < TOL_MAG_TIGHT, (
             f"{label}: bol_mag={result.bol_mag:.6f}, expected={ref_mag:.6f}, "
             f"diff={abs(result.bol_mag-ref_mag):.2e}"
         )
@@ -391,12 +396,11 @@ class TestForwardResult:
     @requires_grid
     @requires_filters
     def test_bolometric_magnitude_sign(self, grid, filters):
-        """Sanity check: Mag_bol = -2.5 log10(F_bol), should be positive for faint sources."""
+        """Mag_bol = -2.5 log10(F_bol / F_bol_0), with F_bol_0 the IAU 2015 M_bol = 0 irradiance."""
         from sed_model import run_forward
         result = run_forward(5778, 4.44, 0.0, R_SUN, D_10PC, grid, filters)
-        # F_bol ~ 3.2e-7, so Mag_bol ~ 16.2
-        assert result.bol_mag > 0
-        assert abs(result.bol_mag - 16.23) < 0.5
+        # The Sun at 10 pc has M_bol = 4.74 (IAU 2015 B2)
+        assert abs(result.bol_mag - 4.74) < 0.05
 
     @requires_fortran
     @requires_grid

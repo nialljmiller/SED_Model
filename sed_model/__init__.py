@@ -117,4 +117,8 @@ __all__ = [
     "AVAILABLE_LAWS",
 ]
 
-__version__ = "0.2.0"
+try:
+    from importlib.metadata import version as _version
+    __version__ = _version("sed-model")
+except Exception:  # running from a source tree that is not installed
+    __version__ = "unknown"

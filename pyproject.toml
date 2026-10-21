@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools<70", "wheel", "numpy>=2.0", "meson", "ninja"]
-build-backend = "setuptools.build_meta"
+requires = ["meson-python>=0.16", "numpy>=2.0"]
+build-backend = "mesonpy"
 
 [project]
 name = "sed-model"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Forward and inverse stellar photometry from SED grids."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -52,13 +52,19 @@ Homepage = "https://github.com/nialljmiller/SED_Model"
 Repository = "https://github.com/nialljmiller/SED_Model"
 Issues = "https://github.com/nialljmiller/SED_Model/issues"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["sed_model*"]
-
-[tool.setuptools]
-include-package-data = true
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
+# musllinux and 32-bit have no gfortran in the build images we use
+skip = "*-musllinux_* *-win32 *_i686"
+test-requires = ["pytest", "pandas", "emcee"]
+# Import the installed wheel (not the source tree) and run the data-free kernel tests
+test-command = "python -c \"import sed_model, sed_model.cc_api\" && pytest {project}/tests/test_kernels.py -p no:cacheprovider"
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+before-all = "yum install -y --disablerepo=epel gcc-gfortran || (sleep 30 && yum install -y --disablerepo=epel gcc-gfortran)"

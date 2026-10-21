@@ -22,7 +22,7 @@
 ! This file is kept for source-level parity with MESA and for any
 ! plain-Fortran caller that wants one aggregated `use colors_lib` --
 ! it compiles and behaves correctly on its own, it's simply excluded
-! from the Makefile/meson.build/setup.py source lists that build the
+! from the Makefile/meson.build source lists that build the
 ! Python extension.
 !
 ! Copyright (C) 2025 Niall Miller
@@ -32,10 +32,11 @@
 module colors_lib
    use colors_def,    only: dp
    use hermite_interp, only: hermite_interp_vector
+   use hermite_interp_bounded, only: hermite_bounded_interp_vector
    use linear_interp,  only: trilinear_interp_vector
    use colors_utils,   only: dilute_flux, trapezoidal_integration, simpson_integration, &
                               find_containing_cell, find_nearest_point, find_interval, &
-                              interp_filter_onto_sed
+                              interp_filter_onto_sed, zero_filter_outside_support
    use synthetic,       only: calculate_synthetic_flux, magnitude, &
                                compute_vega_zero_point, compute_ab_zero_point, compute_st_zero_point
    use bolometric,      only: bolometric_flux, bolometric_magnitude, calculate_bolometric_phot
@@ -45,10 +46,10 @@ module colors_lib
    private
 
    public :: dp
-   public :: hermite_interp_vector, trilinear_interp_vector
+   public :: hermite_interp_vector, hermite_bounded_interp_vector, trilinear_interp_vector
    public :: dilute_flux, trapezoidal_integration, simpson_integration
    public :: find_containing_cell, find_nearest_point, find_interval
-   public :: interp_filter_onto_sed
+   public :: interp_filter_onto_sed, zero_filter_outside_support
    public :: calculate_synthetic_flux, magnitude
    public :: compute_vega_zero_point, compute_ab_zero_point, compute_st_zero_point
    public :: bolometric_flux, bolometric_magnitude, calculate_bolometric_phot

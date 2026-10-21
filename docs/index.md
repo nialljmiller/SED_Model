@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="SED_Model_Logo.png" alt="SED_Model Logo" width="180"/>
+  <img src="SED_Model_logo.jpeg" alt="SED_Model logo" width="520"/>
 </p>
 
 # SED_Model
@@ -8,7 +8,7 @@
 
 SED_Model is a Python package for computing observer-ready synthetic spectral energy distributions (SEDs) and broadband magnitudes from stellar atmosphere grids, and for recovering stellar parameters from observed photometry via Bayesian MCMC inference. It works directly downstream of [SED_Tools](https://github.com/nialljmiller/SED_Tools) and as a standalone drop-in for workflows that use MESA-style atmosphere grids and filter transmission curves.
 
-Current version: **0.1.7** ([PyPI](https://pypi.org/project/sed-model/))
+Current version: **0.3.0** ([PyPI](https://pypi.org/project/sed-model/))
 
 ## Two paired models, one parameter language
 
@@ -24,13 +24,13 @@ SED_Model  ->  generate synthetic magnitudes and infer stellar parameters
 
 ## Features
 
-- Hermite and linear interpolation over 3D atmosphere grids `(Teff, logg, [M/H])`.
+- Bounded Hermite (default), Hermite and linear interpolation over 3D atmosphere grids `(Teff, logg, [M/H])`.
 - Photon-counting filter convolution in Vega, AB, and ST photometric systems.
 - Precomputed zero-points matching MESA `colors/private/synthetic.f90` conventions.
 - Pure-NumPy interstellar dust extinction with six supported laws, including Gordon et al. (2023).
 - Bayesian stellar-parameter inference via `emcee` with fixed, bounded, and fully free parameter modes.
 - Structured result containers with summaries, persistence to CSV and NPZ, and interpolation diagnostics.
-- Fortran kernels for performance-critical paths, compiled via `f2py`/Meson.
+- Fortran kernels for performance-critical paths, compiled via `f2py`/Meson and shipped as prebuilt wheels.
 - Forward tests validated against MESA colors reference outputs; inverse tests verified by self-consistent synthetic recovery.
 
 ## Where to go next

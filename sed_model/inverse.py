@@ -66,7 +66,7 @@ from .params import FitParams, fit_params_from_grid, PC_TO_CM
 from .io import InverseResult
 
 if TYPE_CHECKING:
-    from sed_extinction import ExtinctionModel
+    from .sed_extinction import ExtinctionModel
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +165,7 @@ def run_inverse(
     extinction:        Optional["ExtinctionModel"] = None,
     # sampler settings
     mag_system:        str   = "AB",
-    interp_method:     str   = "hermite",
+    interp_method:     str   = "hermite_bounded",
     n_walkers:         int   = 32,
     n_steps:           int   = 2000,
     n_burn:            int   = 500,
@@ -205,7 +205,7 @@ def run_inverse(
         Dust extinction model.  Required if Av is free in fit_params.
         Ignored if Av is fixed at 0.
     mag_system : {'AB', 'Vega', 'ST'}
-    interp_method : {'hermite', 'linear'}
+    interp_method : {'hermite_bounded', 'hermite', 'linear'}
     n_walkers, n_steps, n_burn, n_thin : int
         emcee settings.
     p0_centre : dict or None

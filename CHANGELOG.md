@@ -1,5 +1,100 @@
 # Changelog
 
+## [0.3.0] — 2026-10-21
+
+Fortran kernels synchronised with the current MESA `colors` module, and
+prebuilt wheels for Linux and macOS published automatically from CI.
+
+> Version 0.2.0 was tagged but never published to PyPI; 0.3.0 supersedes it and
+> includes everything listed under 0.2.0 below.
+
+### Changed (numerical behaviour)
+
+- **Bolometric magnitude now uses the IAU 2015 B2 zero-point.**
+  `Mag_bol = -2.5 log10(F_bol / F_bol,0)` with
+  `F_bol,0 = Lsun 10^(0.4 * 4.74) / (4 pi (10 pc)^2)`, so a solar-luminosity
+  source at 10 pc has `bol_mag = 4.74`. Previously `bol_mag = -2.5 log10(F_bol)`
+  (about 11.5 mag fainter). `bol_flux` is unchanged.
+- **Bolometric integration cleans its input.** Samples with a non-finite or
+  non-positive wavelength, or a non-finite or negative flux, are zeroed before
+  integrating.
+- **Hermite tangents on non-uniform grids** use the spacing-weighted average of
+  the one-sided slopes (exact for quadratics) instead of the unweighted central
+  difference. Singleton axes are handled as degenerate dimensions. The
+  `1e-10` positivity floor is removed from the raw `hermite` interpolant.
+- **Linear interpolation** pins out-of-range queries to the boundary cell,
+  falls back to the nearest grid node when the interpolant is non-finite or
+  non-positive, and uses a `1e-300` floor (previously `1e-10`).
+- **Filter transmission** is interpolated linearly onto the SED grid, held at
+  the end values, then zeroed strictly outside the tabulated range with
+  negative values clamped to zero (MESA `zero_filter_outside_support`). The
+  filter's own edge wavelengths are no longer forced to zero. This also applies
+  to the AB/ST/Vega zero-points computed in Fortran.
+- **Simpson integration** is the non-uniform-spacing rule, with a trapezoid on
+  the last interval when the number of points is even.
+- **Grid location**: `find_interval` collapses dummy axes (all `0`, `999` or
+  `-999`) and clamps out-of-range values to the boundary cell; the
+  nearest-node search is a true minimum-distance search.
+
+### Packaging and CI
+
+- **Build backend is now meson-python** (`pyproject.toml`, `meson.build`,
+  `meson_options.txt`); `setup.py` and `MANIFEST.in` are removed. The
+  version lives in `meson.build` only; `sed_model.__version__` reads the
+  installed package metadata.
+- **Four deliverables from one source tree**, selected with
+  `-Dcomponents={all,python,fortran}`: platform wheels (Fortran built, Python
+  packaged), a pure `py3-none-any` wheel (Fortran not built), standalone
+  Fortran static/shared libraries with `.mod` files and a Fortran smoke test
+  (no Python needed), and the sdist.
+- **`.github/workflows/build.yml`** builds and tests all four on every push and
+  pull request (Linux x86_64/aarch64 via cibuildwheel and manylinux_2_28,
+  macOS arm64/x86_64) and publishes on `v*` tags: platform wheels and sdist to
+  PyPI, everything to the GitHub release. It replaces `publish.yml`, which only
+  uploaded the sdist. The pure wheel is intentionally kept off PyPI.
+- The missing-extension `ImportError` now explains the install options.
+- **Fortran runtime linking.** macOS wheels link the Fortran runtime
+  statically (no bundled dylibs, minimum macOS set by the build target, not
+  by the Homebrew gfortran bottle); Linux wheels bundle `libgfortran` with
+  auditwheel. The extension is linked by the Fortran driver
+  (`link_language: 'fortran'`). The standalone Fortran libraries are
+  self-contained on both: statically linked runtime on macOS, and on Linux
+  `libgfortran`/`libquadmath` vendored beside the library with an `$ORIGIN`
+  rpath (the distro `libgfortran.a` is not position-independent on x86_64).
+- **Clearer source-build failures.** A missing C or Fortran compiler now stops
+  meson with instructions (per platform) instead of a bare "unknown compiler",
+  and building the pure-Python wheel needs no compiler at all.
+
+### New features
+
+- **`interp_method="hermite_bounded"`** (new default for `run_forward`,
+  `run_forward_batch`, `run_inverse`), backed by the new
+  `cc_api.interp_sed_hermite_bounded` and
+  `fortran/private/hermite_interp_bounded.f90`. Negligible negative Hermite
+  undershoot is clipped to zero; an unusable Hermite SED falls back to
+  trilinear interpolation. If both fail, `run_forward` raises `ValueError`.
+  Pass `interp_method="hermite"` for the previous behaviour.
+- `tests/test_kernels.py`: data-free kernel tests reproducing the MESA colors
+  unit-test cases (filter support, non-uniform Hermite, bounded repair and
+  fallback, bolometric zero-point).
+
+### Fixed
+
+- **Source builds on musl/Alpine.** The kernels used the `ieee_arithmetic`
+  intrinsic module, which gfortran on musl does not provide; they now use a
+  portable elemental `is_finite` in `colors_utils`.
+- Type-checking imports in `forward.py` / `inverse.py` pointed at the
+  top-level `sed_extinction` instead of `.sed_extinction`.
+- `ForwardResult.clamped` is no longer set by interpolation fallbacks inside
+  the grid when `hermite_bounded` is used; it reflects out-of-grid queries.
+
+### Docs and tests
+
+- README, docs and build lists updated (version, Fortran source list,
+  `nearest_grid_distance`, interpolation schemes).
+- Group 1 forward tests now compare against the current MESA
+  `test_output` to 1e-5, including the new `Mag_bol` values.
+
 ## [0.2.0] — 2026-07-03
 
 ### Breaking changes

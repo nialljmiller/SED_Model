@@ -12,7 +12,7 @@
    `fortran/private/` or `fortran/public/` afterward, so the file was
    the exact one your `make`/`pip install` errors were pointing at
    before it got dropped).
-2. Replace `Makefile`, `meson.build`, and `setup.py` with the versions
+2. Replace `Makefile` and `meson.build` with the versions
    in this bundle.
 3. Copy `.f2py_f2cmap` to the repo root. Required — see "Bug #1" below.
 4. In `pyproject.toml`, change the build-system numpy pin:
@@ -53,8 +53,10 @@ one addition is a trailing `optional` `ierr` -- MESA call sites that
 don't pass it still work; `cc_api.f90` passes it to get the existing
 `clamped`-outside-grid diagnostic.
 
-Not ported, per your call to skip it: `hermite_interp_bounded.f90`,
-`knn_interp.f90`. Also not ported, no SED_Model equivalent:
+`hermite_interp_bounded.f90` has since been ported (as
+`hermite_bounded_interp_vector`, exposed as `cc_api.interp_sed_hermite_bounded`);
+see CHANGELOG. Not ported, per your call to skip it: `knn_interp.f90`
+(its `interpolate_array` is reproduced in `colors_utils`). Also not ported, no SED_Model equivalent:
 `colors_history.f90`, `colors_ctrls_io.f90` (MESA namelist/history I/O
 -- SED_Model's own I/O lives in `sed_model/io.py`), and the
 handle-based stencil cache in MESA's `construct_sed_hermite` /
@@ -98,7 +100,7 @@ directory), and it's two separate issues stacked on top of each other:
   `cc_api.f90` now `use`s the private kernels (`hermite_interp`,
   `linear_interp`, `colors_utils`, `synthetic`, `bolometric`,
   `colors_def`) directly instead of routing through `colors_lib`, and
-  `colors_lib.f90` is excluded from the Makefile/meson.build/setup.py
+  `colors_lib.f90` is excluded from the Makefile/meson.build
   source lists that build the extension. It's still in the repo,
   still compiles standalone, still matches MESA's file -- it's just
   not part of what gets built into `cc_api`.
