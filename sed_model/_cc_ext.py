@@ -28,7 +28,10 @@ def get_cc_api(required: bool = False):
     except Exception as exc:
         if required:
             raise ImportError(
-                "The Fortran extension 'cc_api' is not built. "
-                "Run 'make' in the SED_Model root directory."
+                "The compiled Fortran extension 'sed_model.cc_api' is not available. "
+                "Install a platform wheel (pip install sed-model), or build from "
+                "source with gfortran + meson (pip install .), or run 'make' in "
+                "the SED_Model root directory.  A pure-Python wheel ships without "
+                "the extension by design."
             ) from exc
         return None

@@ -71,3 +71,6 @@ outputs/
 
 !examples/*.py
 !demos/*.py
+.venv-fortran/
+build-fortran/
+stage/

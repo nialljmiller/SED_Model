@@ -1,0 +1,359 @@
+name: Build
+
+# Every push and pull request builds and tests all four deliverables, which are
+# uploaded as workflow artifacts.  A green build of main (or of a v* tag) then
+# publishes automatically -- no manual step -- whenever the version in
+# meson.build is not on PyPI yet.  Release = bump the version and merge.
+#
+#   Fortran built,     Python packaged     -> platform wheels        (PyPI + release)
+#   Fortran not built, Python packaged     -> pure py3-none-any wheel (release only)
+#   Fortran built,     Python not needed   -> standalone Fortran libs (release only)
+#   Fortran not built, Python not packaged -> sdist                  (PyPI + release)
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Source distribution: needs gfortran + meson to build from.  Also proves the
+  # sdist installs and passes the kernel tests from a clean environment.
+  # ---------------------------------------------------------------------------
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_new: ${{ steps.pypi.outputs.is_new }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # meson dist builds from git
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install gfortran
+        run: sudo apt-get update && sudo apt-get install -y gfortran
+
+      - run: python -m pip install build
+
+      - run: python -m build --sdist
+
+      - name: Read the version
+        id: version
+        run: |
+          f=$(ls dist/sed_model-*.tar.gz)
+          v=${f#dist/sed_model-}
+          echo "version=${v%.tar.gz}" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Is this version already on PyPI?
+        id: pypi
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+                 "https://pypi.org/pypi/sed-model/${{ steps.version.outputs.version }}/json" || true)
+          # 200 = published already; anything else (404, network trouble) = treat
+          # as new -- the upload itself is idempotent (skip-existing).
+          if [ "$code" = "200" ]; then echo "is_new=false"; else echo "is_new=true"; fi | tee -a "$GITHUB_OUTPUT"
+
+      - name: Install the sdist and run the kernel tests
+        run: |
+          python -m pip install dist/*.tar.gz pytest pandas emcee
+          cp -r tests "$RUNNER_TEMP/tests"
+          cd "$RUNNER_TEMP"
+          python -c "import sed_model, sed_model.cc_api"
+          python -m pytest tests/test_kernels.py -p no:cacheprovider
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # Pure-Python wheel: no compiled code, py3-none-any.  The extension must come
+  # from elsewhere (a platform wheel, or a local build).
+  # ---------------------------------------------------------------------------
+  pure_wheel:
+    name: Pure-Python wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: python -m pip install build
+
+      - run: python -m build --wheel -Csetup-args=-Dcomponents=python
+
+      - name: Check it is pure and imports without the extension
+        run: |
+          ls dist/*-py3-none-any.whl
+          python -m pip install dist/*-py3-none-any.whl numpy pandas
+          cd "$RUNNER_TEMP"
+          python - <<'PY'
+          import sed_model
+          from sed_model._cc_ext import get_cc_api
+          assert get_cc_api() is None
+          print("sed_model", sed_model.__version__, "- pure wheel OK")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pure-wheel
+          path: dist/*.whl
+
+  # ---------------------------------------------------------------------------
+  # Platform wheels: Python package + compiled Fortran extension, with the
+  # Fortran runtime bundled in (auditwheel / delocate).  Each wheel is
+  # installed and tested by cibuildwheel (see [tool.cibuildwheel]).
+  # ---------------------------------------------------------------------------
+  wheels:
+    name: Wheels (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    label: linux-x86_64 }
+          - { os: ubuntu-24.04-arm, label: linux-aarch64 }
+          # The Fortran runtime is linked statically on macOS (see meson.build),
+          # so the wheel's minimum macOS is this target, not whatever the
+          # Homebrew gfortran bottle was built for.  Pick the runner's own OS to
+          # keep Homebrew's static libgfortran from being newer than the target.
+          - { os: macos-14,         label: macos-arm64,  macos_target: "14.0" }
+          - { os: macos-15-intel,   label: macos-x86_64, macos_target: "15.0" }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install gfortran (macOS)
+        if: runner.os == 'macOS'
+        run: brew install gfortran
+
+      - run: python -m pip install cibuildwheel==3.4.1
+
+      - name: Build and test wheels
+        run: python -m cibuildwheel --output-dir wheelhouse
+        env:
+          CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.label }}
+          path: wheelhouse/*.whl
+
+  # ---------------------------------------------------------------------------
+  # Standalone Fortran: static + shared libraries and .mod files, no Python.
+  # Linux is built inside manylinux_2_28 so the glibc requirement stays low.
+  # ---------------------------------------------------------------------------
+  fortran_lib:
+    name: Fortran libraries (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    label: linux-x86_64,  image: quay.io/pypa/manylinux_2_28_x86_64 }
+          - { os: ubuntu-24.04-arm, label: linux-aarch64, image: quay.io/pypa/manylinux_2_28_aarch64 }
+          - { os: macos-14,         label: macos-arm64,   macos_target: "14.0" }
+          - { os: macos-15-intel,   label: macos-x86_64,  macos_target: "15.0" }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build, test and install (manylinux container)
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD":/src -w /src ${{ matrix.image }} \
+            bash tools/ci/build_fortran_lib.sh /src/stage/sed_model-fortran
+
+      - name: Build, test and install (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install gfortran
+          bash tools/ci/build_fortran_lib.sh "$PWD/stage/sed_model-fortran"
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_target }}
+
+      - name: Package
+        run: |
+          version=$(git describe --tags --always)
+          tar -C stage -czf "sed_model-fortran-${version}-${{ matrix.label }}.tar.gz" sed_model-fortran
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fortran-${{ matrix.label }}
+          path: sed_model-fortran-*.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # Publish to PyPI: platform wheels + sdist.  Runs on main and v* tags after
+  # every build above succeeded, so a failed platform never yields a partial
+  # release.  Only runs when the version is not on PyPI yet (is_new, from the
+  # sdist job); skip-existing keeps the upload idempotent regardless.
+  #
+  # The pure-Python wheel and the Fortran tarballs go to the GitHub release but
+  # NOT to PyPI: a pure wheel on PyPI would be chosen on platforms with no
+  # platform wheel and then fail at run time for lack of the extension.
+  #
+  # Auth: PYPI_API_TOKEN if that secret exists, otherwise PyPI trusted
+  # publishing (OIDC) -- see docs/installation.md.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish to PyPI
+    if: >-
+      github.event_name == 'push'
+      && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+      && needs.sdist.outputs.is_new == 'true'
+    needs: [sdist, pure_wheel, wheels, fortran_lib]
+    runs-on: ubuntu-latest
+    environment: pypi
+    concurrency:
+      group: publish
+      cancel-in-progress: false
+    permissions:
+      id-token: write   # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Collect distributions and validate their metadata
+        run: |
+          mkdir dist
+          cp artifacts/wheels-*/*.whl artifacts/sdist/*.tar.gz dist/
+          ls -l dist
+          python -m pip install twine
+          python -m twine check --strict dist/*
+
+      # PyPI authenticates an upload before it checks for duplicates.  So
+      # re-uploading a file that already exists (0.1.7's sdist) answers
+      # "400 File already exists" for a valid token and 403 for a bad one --
+      # a harmless way to find out *before* publishing, with a clear message.
+      - name: Check PyPI token (nothing is uploaded)
+        if: env.PYPI_API_TOKEN != ''
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          mkdir probe
+          url=$(curl -fsS https://pypi.org/pypi/sed-model/0.1.7/json \
+                | python -c "import sys,json; print(next(f['url'] for f in json.load(sys.stdin)['urls'] if f['packagetype']=='sdist'))")
+          curl -fsSL -o "probe/$(basename "$url")" "$url"
+          out=$(python -m twine upload --non-interactive -u __token__ -p "$PYPI_API_TOKEN" probe/* 2>&1 || true)
+          echo "$out" | tail -5
+          if echo "$out" | grep -qiE "already exist"; then
+            echo "PyPI token accepted."
+          elif echo "$out" | grep -qiE "403|401|authentication|invalid"; then
+            echo "::error::PYPI_API_TOKEN was rejected by PyPI (revoked, expired, or not valid for sed-model). Replace the secret or use trusted publishing."
+            exit 1
+          else
+            echo "::warning::Could not confirm the PyPI token; continuing to the real upload."
+          fi
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: true
+
+  # ---------------------------------------------------------------------------
+  # Prove the published release installs and works for a user: from PyPI,
+  # binary-only (so a compile fallback cannot mask a missing wheel), on a clean
+  # runner.  PyPI can take a moment to serve a new upload, hence the retries.
+  # ---------------------------------------------------------------------------
+  verify_pypi:
+    name: Verify PyPI install (${{ matrix.os }}, py${{ matrix.python }})
+    needs: [sdist, publish]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, macos-15-intel]
+        python: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install from PyPI (binary only)
+        run: |
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if python -m pip install --no-cache-dir --only-binary=:all: \
+                 "sed-model==${{ needs.sdist.outputs.version }}" pytest pandas emcee; then
+              exit 0
+            fi
+            echo "not available yet (attempt $attempt), retrying in 30 s"
+            sleep 30
+          done
+          exit 1
+
+      - name: Import and run the kernel tests against the installed wheel
+        run: |
+          cp -r tests "$RUNNER_TEMP/tests"
+          cd "$RUNNER_TEMP"
+          python -c "import sed_model, sed_model.cc_api; print(sed_model.__version__)"
+          python -m pytest tests/test_kernels.py -p no:cacheprovider
+
+  # ---------------------------------------------------------------------------
+  # GitHub release: creates the v<version> tag and release the first time a
+  # version is published, attaching every deliverable (including the pure
+  # wheel and the Fortran tarballs).  Skipped if the release already exists.
+  # ---------------------------------------------------------------------------
+  release:
+    name: GitHub release
+    needs: [sdist, verify_pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release if this version has none
+        run: |
+          tag="v${{ needs.sdist.outputs.version }}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $tag already exists - nothing to do"
+            exit 0
+          fi
+          # An existing tag must already point at the commit that was just built;
+          # otherwise the release would attach these artifacts to different code.
+          tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null || true)
+          if [ -n "$tag_sha" ] && [ "$tag_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag $tag already exists at $tag_sha, but this build is $GITHUB_SHA." \
+                 "Move or delete the tag (or bump the version) and re-run."
+            exit 1
+          fi
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$tag" --generate-notes \
+            artifacts/wheels-*/*.whl artifacts/sdist/*.tar.gz \
+            artifacts/pure-wheel/*.whl artifacts/fortran-*/*.tar.gz
+        env:
+          GH_TOKEN: ${{ github.token }}

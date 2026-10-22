@@ -17,6 +17,7 @@ SOURCES := \
 	fortran/private/colors_utils.f90 \
 	fortran/private/hermite_interp.f90 \
 	fortran/private/linear_interp.f90 \
+	fortran/private/hermite_interp_bounded.f90 \
 	fortran/private/synthetic.f90 \
 	fortran/private/bolometric.f90 \
 	fortran/cc_api.f90

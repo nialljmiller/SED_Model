@@ -5,7 +5,7 @@ Forward model: stellar parameters → SED + synthetic photometry.
 
 Pipeline
 --------
-  (Teff, logg, [M/H])  →  SED interpolation  (Fortran, Hermite or linear)
+  (Teff, logg, [M/H])  →  SED interpolation  (Fortran, bounded Hermite, Hermite or linear)
                        →  distance dilution   (Fortran, (R/d)²)
                        →  extinction          (Python, optional, sed_extinction)
                        →  bolometric          (Fortran)
@@ -51,7 +51,7 @@ from .params import FitParams
 from ._cc_ext import get_cc_api
 
 if TYPE_CHECKING:
-    from sed_extinction import ExtinctionModel
+    from .sed_extinction import ExtinctionModel
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +122,7 @@ def run_forward(
     filters: Optional[list] = None,
     # options
     mag_system:    str = "AB",
-    interp_method: str = "hermite",
+    interp_method: str = "hermite_bounded",
     extinction:    Optional["ExtinctionModel"] = None,
     # FitParams interface
     fit_params: Optional[FitParams] = None,
@@ -160,7 +160,12 @@ def run_forward(
     filters : list of Filter
     mag_system : {'AB', 'Vega', 'ST'}
         Case-insensitive.
-    interp_method : {'hermite', 'linear'}
+    interp_method : {'hermite_bounded', 'hermite', 'linear'}
+        ``'hermite_bounded'`` (default, as in MESA colors) uses Hermite
+        interpolation, clips negligible negative undershoot to zero, and
+        falls back to trilinear interpolation where Hermite is unusable.
+        ``'hermite'`` is the raw Hermite interpolant; ``'linear'`` is
+        positivity-preserving trilinear interpolation.
     extinction : ExtinctionModel or None
         Applied after dilution and before filter convolution.
         When Av is free in fit_params, the model's stored a_v is
@@ -204,13 +209,20 @@ def run_forward(
 
     # grid.flux_fortran is pre-computed at load time — zero-copy to Fortran.
     # The axis arrays are already float64 C-contiguous from load_grid.
-    if interp_method == "hermite":
+    method = interp_method.lower()
+    if method == "hermite_bounded":
+        surface_flux, ierr = cc.interp_sed_hermite_bounded(
+            teff_q, logg_q, meta_q,
+            grid.teff_grid, grid.logg_grid, grid.meta_grid,
+            grid.flux_fortran, grid.wavelengths,
+        )
+    elif method == "hermite":
         surface_flux, ierr = cc.interp_sed_hermite(
             teff_q, logg_q, meta_q,
             grid.teff_grid, grid.logg_grid, grid.meta_grid,
             grid.flux_fortran,
         )
-    elif interp_method == "linear":
+    elif method == "linear":
         surface_flux, ierr = cc.interp_sed_linear(
             teff_q, logg_q, meta_q,
             grid.teff_grid, grid.logg_grid, grid.meta_grid,
@@ -219,10 +231,15 @@ def run_forward(
     else:
         raise ValueError(
             f"Unknown interp_method '{interp_method}'. "
-            "Choose 'hermite' or 'linear'."
+            "Choose 'hermite_bounded', 'hermite' or 'linear'."
         )
 
-    if ierr != 0:
+    if method == "hermite_bounded" and ierr == 2:
+        raise ValueError(
+            "Hermite and linear interpolation both returned an invalid SED "
+            f"at Teff={teff:.1f}, logg={logg:.3f}, [M/H]={meta:.3f}."
+        )
+    if ierr != 0 and method != "hermite_bounded":
         clamped = True
 
     # ------------------------------------------------------------------
@@ -303,7 +320,7 @@ def run_forward_batch(
     grid: AtmosphereGrid,
     filters: list,
     mag_system: str = "AB",
-    interp_method: str = "hermite",
+    interp_method: str = "hermite_bounded",
     extinction: Optional["ExtinctionModel"] = None,
 ) -> list:
     """Run run_forward over an array of (teff, logg, meta) rows.

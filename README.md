@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/SED_Model_Logo.png" alt="SED_Model Logo" width="200"/>
+  <img src="docs/SED_Model_logo.jpeg" alt="SED_Model logo" width="600"/>
 </p>
 
 <h1 align="center">SED_Model</h1>
@@ -8,7 +8,7 @@
 
 SED_Model is a Python package for computing observer-ready synthetic spectral energy distributions (SEDs) and broadband magnitudes from stellar atmosphere grids, and for recovering stellar parameters from observed photometry via Bayesian MCMC inference. It is designed to work directly downstream of `SED_Tools` and as a standalone drop-in for workflows that use MESA-style atmosphere grids and filter transmission curves.
 
-Version: `0.1.7`
+Version: `0.3.0`
 
 **Documentation:** https://nialljmiller.github.io/SED_Model/
 
@@ -27,57 +27,66 @@ Both directions operate through a shared `FitParams` object. The same parameter 
 
 ## Features
 
-- Hermite and linear interpolation over 3D atmosphere grids `(Teff, logg, [M/H])`.
+- Bounded Hermite (default), Hermite and linear interpolation over 3D atmosphere grids `(Teff, logg, [M/H])`.
 - Photon-counting filter convolution in Vega, AB, and ST photometric systems.
 - Precomputed zero-points matching MESA `colors/private/synthetic.f90` conventions.
 - Pure-NumPy interstellar dust extinction with multiple supported laws.
 - Bayesian stellar-parameter inference via `emcee` with fixed, bounded, and fully free parameter modes.
 - Structured result containers with summaries, persistence to CSV and NPZ, and interpolation diagnostics.
-- Fortran kernels for performance-critical paths, compiled via `f2py`/Meson.
+- Fortran kernels for performance-critical paths, compiled via `f2py`/Meson and shipped as prebuilt wheels.
 - Forward tests validated against MESA colors reference outputs; inverse tests verified by self-consistent synthetic recovery.
 
 ---
 
 ## Installation
 
+```bash
+pip install sed-model
+```
+
+Prebuilt wheels (Fortran extension included, runtime bundled) are published for Linux x86_64/aarch64 and macOS arm64/x86_64. Every release also provides a pure-Python wheel, standalone Fortran libraries (no Python needed), and the source distribution — see the [installation guide](https://nialljmiller.github.io/SED_Model/installation/) for choosing between them.
+
 ### From source
 
 ```bash
 git clone https://github.com/nialljmiller/SED_Model.git
 cd SED_Model
-python -m pip install -e .
-````
-
-### Build the Fortran extension
-
-```bash
-python setup.py build_ext --inplace
+python -m pip install -e .      # needs gfortran; meson-python builds the extension
 ```
 
-or:
-
-```bash
-make
-```
-
-The build compiles:
+The extension compiles:
 
 ```text
-fortran/cc_kernels.f90
+fortran/public/colors_def.f90
+fortran/private/{colors_utils,hermite_interp,linear_interp,hermite_interp_bounded,synthetic,bolometric}.f90
 fortran/cc_api.f90
 ```
 
-into the `sed_model.cc_api` extension module.
+into `sed_model.cc_api`. `make` is a quick alternative that builds it in place.
+
+### Compatibility
+
+| Platform | `pip install sed-model` | Python | How it was verified |
+|---|---|---|---|
+| Linux x86_64 (glibc ≥ 2.28) | prebuilt wheel | 3.10 – 3.14 | CI on every push; built and tested in manylinux_2_28 (emulated) |
+| Linux aarch64 (glibc ≥ 2.28) | prebuilt wheel | 3.10 – 3.14 | CI on every push; all five Pythons tested on Debian 11/12/13 |
+| macOS arm64 (macOS 14+) | prebuilt wheel | 3.10 – 3.14 | CI on every push; build and repair path tested locally |
+| macOS x86_64 (macOS 15+) | prebuilt wheel | 3.10 – 3.14 | CI on every push; not tested locally |
+| Linux musl (Alpine) | builds from source | 3.10+ | tested; needs `gcc gfortran musl-dev` |
+| macOS older than the above | builds from source | 3.10+ | needs `gfortran` |
+| Windows | not supported natively | – | use WSL |
+
+The Fortran runtime is bundled in the Linux wheels and linked statically into the macOS wheels, so nothing besides Python and NumPy ≥ 2.0 is needed to use a wheel. "Builds from source" means pip compiles the Fortran on your machine and requires `gfortran` and a C compiler; if either is missing the build stops with instructions.
+
+Each release also provides, on the [GitHub releases page](https://github.com/nialljmiller/SED_Model/releases), a pure-Python wheel (no compiled extension) and standalone Fortran libraries (no Python) for the Linux and macOS platforms above. See the [installation guide](https://nialljmiller.github.io/SED_Model/installation/).
 
 ### Requirements
 
 * Python >= 3.10
-* `numpy`
+* `numpy` >= 2.0
 * `pandas`
 * `emcee`
-* `gfortran`
-* `meson`
-* `ninja`
+* `gfortran` (building from source only)
 
 `matplotlib` is only needed for plotting/demo workflows.
 
@@ -142,7 +151,7 @@ The returned `AtmosphereGrid` exposes:
 * `wavelengths`
 * `in_bounds(teff, logg, meta)`
 * `clamp(teff, logg, meta)`
-* `interp_radius(teff, logg, meta)`
+* `nearest_grid_distance(teff, logg, meta)`
 
 ---
 
@@ -193,7 +202,7 @@ result = run_forward(
     grid=grid,
     filters=filters,
     mag_system="Vega",
-    interp_method="hermite",
+    interp_method="hermite_bounded",  # or "hermite", "linear"
 )
 ```
 
@@ -206,7 +215,7 @@ result = run_forward(
 * `band_fluxes`
 * `bol_flux`
 * `bol_mag`
-* `interp_radius`
+* `nearest_grid_distance`
 * `clamped`
 * `teff`, `logg`, `meta`, `R`, `d`, `a_v`
 * `mag_system`
@@ -400,7 +409,9 @@ sed_model/
   sed_extinction.py
 
 fortran/
-  cc_kernels.f90
+  public/colors_def.f90
+  private/{colors_utils,hermite_interp,linear_interp,
+           hermite_interp_bounded,synthetic,bolometric}.f90
   cc_api.f90
 
 demos/
@@ -408,7 +419,9 @@ tests/
 Makefile
 meson.build
 pyproject.toml
-setup.py
+meson.build
+meson_options.txt
+tools/
 ```
 
 ---
@@ -416,3 +429,9 @@ setup.py
 ## License
 
 SED_Model uses a mixed-license structure. The Python source code, documentation, examples, tests, and packaging files are distributed under the MIT License. The Fortran numerical kernels in `fortran/` are distributed under LGPL-3.0-or-later. See `LICENSE` and source file headers for details.
+
+---
+
+<p align="center">
+  <img src="docs/SED_Model_Logo_full.png" alt="SED_Model: The Pythonic Inside Story of MCMC-Based Stellar Parameter Inference from Photometric Grids, by Niall Miller" width="360"/>
+</p>

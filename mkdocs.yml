@@ -7,8 +7,8 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
-  logo: SED_Model_Logo.png
-  favicon: SED_Model_Logo.png
+  logo: SED_Model_logo.jpeg
+  favicon: SED_Model_logo.jpeg
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default

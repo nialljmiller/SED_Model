@@ -5,7 +5,7 @@ The forward model maps stellar parameters to an observer-frame SED and synthetic
 ## Pipeline
 
 ```text
-(Teff, logg, [M/H])  →  SED interpolation   (Fortran, Hermite or linear)
+(Teff, logg, [M/H])  →  SED interpolation   (Fortran, bounded Hermite, Hermite or linear)
                      →  distance dilution    (Fortran, (R/d)²)
                      →  extinction           (Python, optional)
                      →  bolometric           (Fortran)
@@ -31,7 +31,7 @@ result = run_forward(
     grid=grid,
     filters=filters,
     mag_system="Vega",          # "AB" (default), "Vega", or "ST"
-    interp_method="hermite",    # "hermite" (default) or "linear"
+    interp_method="hermite_bounded",  # "hermite_bounded" (default), "hermite" or "linear"
 )
 ```
 
@@ -51,14 +51,15 @@ result = run_forward(
 
 ## Interpolation
 
-Two schemes operate on the 3D `(Teff, logg, [M/H])` flux cube, vectorised over wavelength:
+Three schemes operate on the 3D `(Teff, logg, [M/H])` flux cube, vectorised over wavelength. They follow the current MESA colors module:
 
-- **`hermite`** — cubic Hermite tensor interpolation with finite-difference tangents (central differences in the interior, one-sided at grid edges).
-- **`linear`** — trilinear interpolation.
+- **`hermite_bounded`** (default) — Hermite interpolation with a safeguard. If the Hermite SED is finite and usable, negligible negative undershoot (below 0.1 % of the positive SED, by both integral and peak) is clipped to zero. Otherwise the call falls back to trilinear interpolation. If neither gives a valid SED, `run_forward` raises `ValueError` (the inverse model treats that as `-inf` log-likelihood).
+- **`hermite`** — raw cubic Hermite tensor interpolation. Tangents on non-uniform grids are the spacing-weighted average of the one-sided slopes in the interior and one-sided at grid edges. Axes with a single grid point are treated as degenerate dimensions. No positivity floor is applied, so the result can undershoot below zero.
+- **`linear`** — trilinear interpolation. A non-finite or non-positive result falls back to the nearest grid node; values are floored at `1e-300`.
 
-If the query point falls outside the grid, both schemes fall back to the **nearest grid node** and the result is flagged (`clamped=True`). Interpolated fluxes are floored at a tiny positive value, never negative.
+If the query point falls outside the grid, it is clamped to the grid boundary and the result is flagged (`clamped=True`).
 
-The `interp_radius` diagnostic (distance in normalised parameter space from the nearest grid node) is computed for every call so you can gauge how far from tabulated models the interpolation reached.
+The `nearest_grid_distance` diagnostic (distance in normalised parameter space from the nearest grid node) is computed for every call so you can gauge how far from tabulated models the interpolation reached.
 
 ## `ForwardResult`
 
@@ -69,8 +70,8 @@ The `interp_radius` diagnostic (distance in normalised parameter space from the 
 | `observed_flux` | after `(R/d)²` dilution and any extinction |
 | `magnitudes` | `{filter_name: magnitude}` in the requested system |
 | `band_fluxes` | `{filter_name: in-band flux}` (erg/s/cm²/Å) |
-| `bol_flux`, `bol_mag` | bolometric flux and magnitude (`Mag_bol = -2.5 log10 F_bol`, MESA colors convention — no additional zero-point) |
-| `interp_radius`, `clamped` | interpolation diagnostics |
+| `bol_flux`, `bol_mag` | bolometric flux and magnitude (`Mag_bol = -2.5 log10(F_bol / F_bol,0)`, where `F_bol,0` is the IAU 2015 B2 irradiance of an `M_bol = 0` source, so the Sun at 10 pc has `M_bol = 4.74`; samples with a non-finite or negative flux are zeroed before integrating) |
+| `nearest_grid_distance`, `clamped` | interpolation diagnostics |
 | `teff`, `logg`, `meta`, `R`, `d`, `a_v` | the parameters that produced this result (self-describing) |
 | `mag_system`, `extinction_applied` | bookkeeping |
 

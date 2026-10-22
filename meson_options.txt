@@ -1,0 +1,9 @@
+option(
+  'components',
+  type: 'combo',
+  choices: ['all', 'python', 'fortran'],
+  value: 'all',
+  description: 'all: Python package + compiled f2py extension (platform wheel); '
+             + 'python: Python sources only (pure py3-none-any wheel); '
+             + 'fortran: standalone Fortran kernel libraries + .mod files, no Python',
+)

@@ -1,0 +1,2 @@
+# Large artwork: keep it in the repository but out of the source distribution.
+docs/SED_Model_Logo_full.png export-ignore
