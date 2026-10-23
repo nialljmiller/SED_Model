@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/SED_Model_logo.jpeg" alt="SED_Model logo" width="600"/>
+  <img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/SED_Model_logo.jpeg" alt="SED_Model logo" width="600"/>
 </p>
 
 <h1 align="center">SED_Model</h1>
@@ -433,5 +433,5 @@ SED_Model uses a mixed-license structure. The Python source code, documentation,
 ---
 
 <p align="center">
-  <img src="docs/SED_Model_Logo_full.png" alt="SED_Model: The Pythonic Inside Story of MCMC-Based Stellar Parameter Inference from Photometric Grids, by Niall Miller" width="360"/>
+  <img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/SED_Model_Logo_full.png" alt="SED_Model: The Pythonic Inside Story of MCMC-Based Stellar Parameter Inference from Photometric Grids, by Niall Miller" width="360"/>
 </p>
