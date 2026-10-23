@@ -31,16 +31,16 @@ jobs:
   # ---------------------------------------------------------------------------
   sdist:
     name: Source distribution
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
       is_new: ${{ steps.pypi.outputs.is_new }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # meson dist builds from git
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -75,7 +75,7 @@ jobs:
           python -c "import sed_model, sed_model.cc_api"
           python -m pytest tests/test_kernels.py -p no:cacheprovider
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: dist/*.tar.gz
@@ -86,13 +86,13 @@ jobs:
   # ---------------------------------------------------------------------------
   pure_wheel:
     name: Pure-Python wheel
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -112,7 +112,7 @@ jobs:
           print("sed_model", sed_model.__version__, "- pure wheel OK")
           PY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pure-wheel
           path: dist/*.whl
@@ -129,7 +129,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,    label: linux-x86_64 }
+          - { os: ubuntu-24.04,     label: linux-x86_64 }
           - { os: ubuntu-24.04-arm, label: linux-aarch64 }
           # The Fortran runtime is linked statically on macOS (see meson.build),
           # so the wheel's minimum macOS is this target, not whatever the
@@ -138,11 +138,11 @@ jobs:
           - { os: macos-14,         label: macos-arm64,  macos_target: "14.0" }
           - { os: macos-15-intel,   label: macos-x86_64, macos_target: "15.0" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -157,7 +157,7 @@ jobs:
         env:
           CIBW_ENVIRONMENT_MACOS: MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_target }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.label }}
           path: wheelhouse/*.whl
@@ -173,12 +173,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,    label: linux-x86_64,  image: quay.io/pypa/manylinux_2_28_x86_64 }
+          - { os: ubuntu-24.04,     label: linux-x86_64,  image: quay.io/pypa/manylinux_2_28_x86_64 }
           - { os: ubuntu-24.04-arm, label: linux-aarch64, image: quay.io/pypa/manylinux_2_28_aarch64 }
           - { os: macos-14,         label: macos-arm64,   macos_target: "14.0" }
           - { os: macos-15-intel,   label: macos-x86_64,  macos_target: "15.0" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -201,7 +201,7 @@ jobs:
           version=$(git describe --tags --always)
           tar -C stage -czf "sed_model-fortran-${version}-${{ matrix.label }}.tar.gz" sed_model-fortran
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: fortran-${{ matrix.label }}
           path: sed_model-fortran-*.tar.gz
@@ -226,7 +226,7 @@ jobs:
       && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
       && needs.sdist.outputs.is_new == 'true'
     needs: [sdist, pure_wheel, wheels, fortran_lib]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: pypi
     concurrency:
       group: publish
@@ -234,11 +234,11 @@ jobs:
     permissions:
       id-token: write   # trusted publishing
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -292,12 +292,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, macos-15-intel]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, macos-15-intel]
         python: ["3.10", "3.14"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
 
@@ -328,11 +328,11 @@ jobs:
   release:
     name: GitHub release
     needs: [sdist, verify_pypi]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
 
