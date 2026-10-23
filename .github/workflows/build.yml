@@ -345,11 +345,14 @@ jobs:
           fi
           # An existing tag must already point at the commit that was just built;
           # otherwise the release would attach these artifacts to different code.
-          tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null || true)
-          if [ -n "$tag_sha" ] && [ "$tag_sha" != "$GITHUB_SHA" ]; then
-            echo "::error::Tag $tag already exists at $tag_sha, but this build is $GITHUB_SHA." \
-                 "Move or delete the tag (or bump the version) and re-run."
-            exit 1
+          # gh prints the API error body to stdout on failure, so test the exit
+          # status rather than the output: a missing tag means nothing to compare.
+          if tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null); then
+            if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+              echo "::error::Tag $tag already exists at $tag_sha, but this build is $GITHUB_SHA." \
+                   "Move or delete the tag (or bump the version) and re-run."
+              exit 1
+            fi
           fi
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "$tag" --generate-notes \
