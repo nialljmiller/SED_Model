@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.1] — 2026-10-23
+
+Packaging and CI only; no numerical changes.
+
+- README logos use absolute URLs, so they render on the PyPI project page.
+- Square `docs/favicon.png` for the documentation site.
+- Release job: the tag guard no longer misreads the API error body as a commit
+  when the tag does not yet exist.
+- CI: actions moved to current majors (Node 24), and runners pinned to
+  `ubuntu-24.04` instead of `ubuntu-latest`.
+- Removed the legacy, uncompiled `fortran/private/cc_api.f90`.
+
 ## [0.3.0] — 2026-10-21
 
 Fortran kernels synchronised with the current MESA `colors` module, and
