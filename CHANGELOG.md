@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.4.0] — 2026-10-25
+
+Validated against the MESA `colors` module, MSG and MIST (see
+[Testing and Validation](docs/testing.md)); forward parity fixes and a rebuilt
+inverse model.
+
+### Forward model
+
+Forward-model parity fixes found by sweeping against MESA `colors` (see
+`tests/test_kernels.py`). SEDs and magnitudes otherwise agree with MESA to
+rounding error.
+
+- **`bol_mag` is `99.0` when the integrated flux is not positive** (MESA's
+  value), instead of `-99.9`.
+- **`nearest_grid_distance` now equals MESA's `Interp_rad`**: the distance to
+  the nearest tabulated model (empty cube nodes excluded), with axes
+  normalised by the range of the tabulated models. Previously it measured to
+  every node of the rectangular cube.
+- **`run_forward` warns** (`UserWarning`) when the query's grid cell touches a
+  node with no model; the interpolated result there is unreliable.
+  `AtmosphereGrid.cell_has_empty_nodes` exposes the check.
+- **`clamped` is no longer set by `interp_method='linear'`** merely because some
+  wavelength bins fell back to the nearest node at a populated, in-bounds point.
+
+### Inverse model
+
+The new fast evaluator calls the same Fortran kernels and agrees with
+`run_forward` to 1e-9 mag.
+
+### Changed (default behaviour)
+
+- **`run_inverse` now initialises walkers with a global search + Levenberg-
+  Marquardt refinement (`init='auto'`)** instead of a 2 % Gaussian ball at the
+  middle of the prior box. For the full Kurucz grid that ball sat in an empty
+  grid corner, and walkers that started there often never left it. In an
+  inject-and-recover benchmark (16-24 stars, 0.005-0.05 mag noise, Johnson /
+  optical+NIR / 11-band sets) the old default gave, with Av free, a Teff error
+  MAD of 10.9 % (now 1.6 %) and 12 % of fits with logg off by more than 4 sigma
+  (now 0.7 %); with Av and distance free the 95 % Teff coverage went from 0.72
+  to 0.91. Giving `p0_centre` (or `init='ball'`) restores the old behaviour
+  exactly, including emcee's stretch move.
+- With `init='auto'` the default sampler move is a differential-evolution
+  mixture (`moves='de'`), which halves the autocorrelation time and lets
+  walkers rebalance between modes; `moves='stretch'` restores the old move.
+- Grid nodes holding an all-zero SED (unphysical corners of Kurucz grids) now
+  give a zero posterior instead of finite magnitudes of ~770.
+- The likelihood no longer builds a full `ForwardResult` per call.
+
+### Added
+
+- `run_inverse` options: `init`, `sys_floor`, `fit_jitter` / `jitter_max`,
+  `priors` (`normal`, `halfnormal`, `parallax`, `edsd`, or callables),
+  `upper_limits`, `auto_stop`, `moves`, `pool`; `n_burn=None` for automatic
+  burn-in. Non-finite magnitudes are dropped with a warning.
+- `InverseResult`: `converged`, `n_eff`, `chi2_best`, `n_data`, `init_info`
+  (saved and loaded with `.npz`), and `credible_interval(name, level, method)`
+  with highest-posterior-density intervals.
+
 ## [0.3.2] — 2026-10-25
 
 - **Filter files from SED_Tools 0.4.0 load again.** SED_Tools 0.4.0 puts its

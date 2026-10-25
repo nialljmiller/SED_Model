@@ -35,18 +35,30 @@ module synthetic
 
 contains
 
-   ! Photon-counting in-band flux from an already-convolved SED:
+   ! In-band flux from an already-convolved SED.  Photon counting (the
+   ! default, as in MESA):
    !   F_band = integral(convolved_flux * lambda) / integral(filter * lambda)
+   ! Energy counting (filters tagged '# DetectorType: energy'):
+   !   F_band = integral(convolved_flux) / integral(filter)
    ! `convolved_flux` is obs_flux * filter_on_sed_grid, computed by the
    ! caller -- matches MESA's calling convention in synthetic.f90.
-   subroutine calculate_synthetic_flux(wavelengths, convolved_flux, filter_on_sed_grid, synthetic_flux)
+   subroutine calculate_synthetic_flux(wavelengths, convolved_flux, filter_on_sed_grid, synthetic_flux, photon_counting)
       real(dp), intent(in)  :: wavelengths(:), convolved_flux(:), filter_on_sed_grid(:)
       real(dp), intent(out) :: synthetic_flux
+      logical, optional, intent(in) :: photon_counting
 
       real(dp) :: integrated_flux, integrated_filter
+      logical :: use_photons
 
-      call simpson_integration(wavelengths, convolved_flux * wavelengths, integrated_flux)
-      call simpson_integration(wavelengths, filter_on_sed_grid * wavelengths, integrated_filter)
+      use_photons = .true.
+      if (present(photon_counting)) use_photons = photon_counting
+      if (use_photons) then
+         call simpson_integration(wavelengths, convolved_flux * wavelengths, integrated_flux)
+         call simpson_integration(wavelengths, filter_on_sed_grid * wavelengths, integrated_filter)
+      else
+         call simpson_integration(wavelengths, convolved_flux, integrated_flux)
+         call simpson_integration(wavelengths, filter_on_sed_grid, integrated_filter)
+      end if
 
       if (integrated_filter > 0.0_dp) then
          synthetic_flux = integrated_flux / integrated_filter
@@ -72,36 +84,30 @@ contains
 
 
    ! Vega zero-point -- called once at filter-load time.
-   real(dp) function compute_vega_zero_point(vega_wave, vega_flux, filt_wave, filt_trans)
+   real(dp) function compute_vega_zero_point(vega_wave, vega_flux, filt_wave, filt_trans, photon_counting)
       real(dp), intent(in) :: vega_wave(:), vega_flux(:)
       real(dp), intent(in) :: filt_wave(:), filt_trans(:)
+      logical, optional, intent(in) :: photon_counting
 
-      real(dp) :: int_flux, int_filter
       real(dp), allocatable :: filt_on_vega(:)
       integer :: ierr
 
       allocate (filt_on_vega(size(vega_wave)))
       call interp_filter_onto_sed(filt_wave, filt_trans, vega_wave, filt_on_vega, ierr)
 
-      call simpson_integration(vega_wave, vega_flux * filt_on_vega * vega_wave, int_flux)
-      call simpson_integration(vega_wave, filt_on_vega * vega_wave, int_filter)
-
-      if (int_filter > 0.0_dp) then
-         compute_vega_zero_point = int_flux / int_filter
-      else
-         compute_vega_zero_point = -1.0_dp
-      end if
+      call calculate_synthetic_flux(vega_wave, vega_flux * filt_on_vega, filt_on_vega, &
+                                    compute_vega_zero_point, photon_counting)
 
       deallocate (filt_on_vega)
    end function compute_vega_zero_point
 
 
    ! AB zero-point -- f_nu = 3631 Jy converted to f_lambda on the filter grid.
-   real(dp) function compute_ab_zero_point(filt_wave, filt_trans)
+   real(dp) function compute_ab_zero_point(filt_wave, filt_trans, photon_counting)
       real(dp), intent(in) :: filt_wave(:), filt_trans(:)
+      logical, optional, intent(in) :: photon_counting
 
       integer  :: i
-      real(dp) :: int_flux, int_filter
       real(dp), allocatable :: f_ab(:)
 
       allocate (f_ab(size(filt_wave)))
@@ -113,37 +119,25 @@ contains
          end if
       end do
 
-      call simpson_integration(filt_wave, f_ab * filt_trans * filt_wave, int_flux)
-      call simpson_integration(filt_wave, filt_trans * filt_wave, int_filter)
-
-      if (int_filter > 0.0_dp) then
-         compute_ab_zero_point = int_flux / int_filter
-      else
-         compute_ab_zero_point = -1.0_dp
-      end if
+      call calculate_synthetic_flux(filt_wave, f_ab * filt_trans, filt_trans, &
+                                    compute_ab_zero_point, photon_counting)
 
       deallocate (f_ab)
    end function compute_ab_zero_point
 
 
    ! ST zero-point -- flat f_lambda = 3.63e-9 erg/s/cm^2/A.
-   real(dp) function compute_st_zero_point(filt_wave, filt_trans)
+   real(dp) function compute_st_zero_point(filt_wave, filt_trans, photon_counting)
       real(dp), intent(in) :: filt_wave(:), filt_trans(:)
+      logical, optional, intent(in) :: photon_counting
 
-      real(dp) :: int_flux, int_filter
       real(dp), allocatable :: f_st(:)
 
       allocate (f_st(size(filt_wave)))
       f_st = ST_FLAM_ZP
 
-      call simpson_integration(filt_wave, f_st * filt_trans * filt_wave, int_flux)
-      call simpson_integration(filt_wave, filt_trans * filt_wave, int_filter)
-
-      if (int_filter > 0.0_dp) then
-         compute_st_zero_point = int_flux / int_filter
-      else
-         compute_st_zero_point = -1.0_dp
-      end if
+      call calculate_synthetic_flux(filt_wave, f_st * filt_trans, filt_trans, &
+                                    compute_st_zero_point, photon_counting)
 
       deallocate (f_st)
    end function compute_st_zero_point

@@ -165,3 +165,145 @@ def test_filter_header_row_with_metadata_field(tmp_path):
         waves[name] = (f.wavelengths.tolist(), f.transmission.tolist())
     assert waves["meta"] == waves["bare"] == waves["comments"]
     assert waves["meta"][0] == [3200.0, 3300.0, 3400.0, 3500.0]
+
+# ---------------------------------------------------------------------------
+# MESA-parity regressions (found by sweeping against the MESA colors module)
+# ---------------------------------------------------------------------------
+
+def test_bolometric_nonpositive_flux_uses_mesa_sentinel():
+    """MESA's calculate_bolometric_phot returns Mag_bol = 99.0 for a SED that
+    integrates to zero (e.g. an empty grid node)."""
+    wave = np.array([1.0, 2.0, 3.0])
+    bol_flux, bol_mag, ierr = cc.bolometric(wave, np.zeros(3))
+    assert bol_flux == 0.0
+    assert bol_mag == 99.0
+    assert ierr != 0
+
+
+def test_energy_counting_filter_matches_mesa():
+    """colors/test check_tagged_energy_filter: a flat filter on [1, 3, 5] and
+    F(lambda) = lambda gives <F> = 3 with energy weighting and a larger
+    <F> = 3.44 with photon weighting (so a smaller magnitude)."""
+    sed_wave = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    filt_wave = np.array([1.0, 3.0, 5.0])
+    trans = np.ones(3)
+
+    e_mag, e_flux, e_ierr = cc.synthetic_magnitude(
+        sed_wave, sed_wave, filt_wave, trans, 1.0, photon_counting=0)
+    p_mag, p_flux, p_ierr = cc.synthetic_magnitude(
+        sed_wave, sed_wave, filt_wave, trans, 1.0, photon_counting=1)
+    d_mag, _, _ = cc.synthetic_magnitude(sed_wave, sed_wave, filt_wave, trans, 1.0)
+
+    assert e_ierr == 0 and p_ierr == 0
+    assert e_mag == pytest.approx(-2.5 * np.log10(3.0), abs=1e-10)
+    assert p_mag < e_mag
+    assert d_mag == p_mag            # photon counting stays the default
+
+
+def test_energy_counting_zero_points():
+    """Zero points of an energy filter use the unweighted band average:
+    ST is exactly the flat f_lambda constant, and AB differs from the
+    photon-weighted value."""
+    wave = np.array([1000.0, 2000.0, 3000.0, 4000.0])
+    trans = np.array([0.0, 1.0, 1.0, 0.0])
+    st_e, ierr = cc.st_zero_point(wave, trans, photon_counting=0)
+    st_p, _ = cc.st_zero_point(wave, trans)
+    ab_e, _ = cc.ab_zero_point(wave, trans, photon_counting=0)
+    ab_p, _ = cc.ab_zero_point(wave, trans)
+    assert ierr == 0
+    assert st_e == pytest.approx(3.63e-9, rel=1e-13)
+    assert st_p == pytest.approx(3.63e-9, rel=1e-13)
+    f_ab = 3.631e-20 * 2.99792458e18 / wave ** 2
+    expect = cc.simpson(wave, f_ab * trans) / cc.simpson(wave, trans)
+    assert ab_e != ab_p
+    assert ab_e == pytest.approx(expect, rel=1e-12)
+
+
+def test_filters_default_to_photon_counting(tmp_path):
+    """Loaders weight by wavelength (photon counting), whatever the file's
+    comment lines say; detector-type tags are not read yet."""
+    from sed_model.filters import load_filters
+
+    body = "Wavelength,Transmission\n1000,0\n2000,1\n3000,1\n4000,0\n"
+    (tmp_path / "plain.dat").write_text(body)
+    (tmp_path / "tagged.dat").write_text("# DetectorType: energy\n" + body)
+    plain, tagged = load_filters([tmp_path / "plain.dat", tmp_path / "tagged.dat"])
+    assert plain.photon_counting and tagged.photon_counting
+    assert plain.ab_zero_point == tagged.ab_zero_point
+
+
+def test_nearest_grid_distance_matches_mesa_interp_rad():
+    """Interp_rad is the normalised distance to the nearest *tabulated model*
+    (rows of lookup_table.csv), with axes normalised by the range of the
+    tabulated models; empty cube nodes do not count."""
+    from pathlib import Path
+    from sed_model.grid import AtmosphereGrid, _tabulated_nodes
+
+    T = np.array([4000.0, 5000.0, 6000.0])
+    L = np.array([1.0, 2.0])
+    M = np.array([0.0])
+    flux = np.ones((3, 2, 1, 4))
+    flux[2, 1, 0, :] = 0.0                      # corner (6000, 2.0) has no model
+    wave = np.arange(1.0, 5.0)
+    g = AtmosphereGrid(T, L, M, wave, flux, np.asfortranarray(flux), Path("."),
+                       lookup_nodes=_tabulated_nodes(T, L, M, flux))
+
+    # [M/H] axis is degenerate (all zero): ignored.  Nearest model to the
+    # empty corner is (5000, 2.0) or (6000, 1.0): both 0.5 away in Teff / 1.0 in logg.
+    d_hole = g.nearest_grid_distance(6000.0, 2.0, 0.0)
+    assert d_hole == pytest.approx(0.5, abs=1e-14)          # 1000 K / 2000 K range
+    assert g.nearest_grid_distance(5000.0, 1.0, 0.0) == pytest.approx(0.0, abs=1e-14)
+    # off-grid queries are not clamped
+    assert g.nearest_grid_distance(7000.0, 1.0, 0.0) == pytest.approx(0.5, abs=1e-14)
+
+
+def _hole_grid():
+    from pathlib import Path
+    from sed_model.grid import AtmosphereGrid, _tabulated_nodes
+
+    T = np.array([4000.0, 5000.0, 6000.0])
+    L = np.array([1.0, 2.0, 3.0])
+    M = np.array([0.0])                      # degenerate axis
+    wave = np.linspace(1000.0, 9000.0, 8)
+    flux = np.ones((3, 3, 1, 8))
+    flux[2, 2, 0, :] = 0.0                   # no model at (6000, 3.0)
+    return AtmosphereGrid(T, L, M, wave, flux, np.asfortranarray(flux), Path("."),
+                          lookup_nodes=_tabulated_nodes(T, L, M, flux))
+
+
+def test_cell_has_empty_nodes():
+    g = _hole_grid()
+    assert g.cell_has_empty_nodes(5500.0, 2.5, 0.0)        # cell touches the hole
+    assert g.cell_has_empty_nodes(6000.0, 3.0, 0.0)        # the empty node itself
+    assert not g.cell_has_empty_nodes(4500.0, 1.5, 0.0)    # clean cell
+    # on a populated node the empty neighbour carries no weight
+    assert not g.cell_has_empty_nodes(5000.0, 2.0, 0.0)
+    assert not g.cell_has_empty_nodes(6000.0, 2.0, 0.0)
+    # out-of-range queries use the boundary node/cell
+    assert g.cell_has_empty_nodes(9000.0, 9.0, 0.0)
+    assert not g.cell_has_empty_nodes(1000.0, 0.0, 0.0)
+
+
+def test_run_forward_warns_in_empty_cell():
+    from sed_model import run_forward
+
+    g = _hole_grid()
+    kw = dict(R=6.957e10, d=3.0857e19, grid=g, filters=[])
+    with pytest.warns(UserWarning, match="empty nodes"):
+        run_forward(teff=5500.0, logg=2.5, meta=0.0, **kw)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        run_forward(teff=4500.0, logg=1.5, meta=0.0, **kw)
+
+
+def test_linear_zero_bin_fallback_is_not_clamped():
+    """A populated on-node, in-bounds query is not 'clamped' just because some
+    wavelength bins hold zero flux and fell back to the nearest node."""
+    from sed_model import run_forward
+
+    g = _hole_grid()
+    g.flux_fortran[1, 1, 0, 0] = 0.0         # one zero bin at a populated node
+    r = run_forward(teff=5000.0, logg=2.0, meta=0.0, R=6.957e10, d=3.0857e19,
+                    grid=g, filters=[], interp_method="linear")
+    assert not r.clamped

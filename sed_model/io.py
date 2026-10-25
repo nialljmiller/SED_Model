@@ -75,6 +75,21 @@ class InverseResult:
     autocorr_time : ndarray or None, shape (n_free,)
         Estimated integrated autocorrelation time for each parameter.
         None if estimation failed (chain too short).
+    converged : bool or None
+        True if the post-burn-in chain is longer than 50 integrated
+        autocorrelation times for every parameter (emcee's rule of thumb).
+        None if the autocorrelation time could not be estimated.
+    n_eff : ndarray or None, shape (n_free,)
+        Effective number of independent samples per parameter,
+        ``n_walkers * (n_steps - n_burn) / autocorr_time``.
+    chi2_best : float or None
+        Data chi-square (sum of ((obs-model)/sigma_eff)^2 over detections) of
+        the maximum-posterior sample.
+    n_data : int or None
+        Number of detected (non-upper-limit) bands used in the fit.
+    init_info : dict
+        How the walkers were initialised (method, number of modes found, ...)
+        and sampler bookkeeping (number of likelihood evaluations).
     """
 
     samples:             np.ndarray        # (n_samples, n_free)
@@ -93,6 +108,11 @@ class InverseResult:
     autocorr_time:       Optional[np.ndarray] = None
     param_names:         list[str] = field(default_factory=lambda: ["teff", "logg", "meta"])
     fixed_params:        dict[str, float] = field(default_factory=dict)
+    converged:           Optional[bool] = None
+    n_eff:               Optional[np.ndarray] = None
+    chi2_best:           Optional[float] = None
+    n_data:              Optional[int] = None
+    init_info:           dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # Summary statistics
@@ -121,6 +141,34 @@ class InverseResult:
             }
         return result
 
+    def credible_interval(self, name: str, level: float = 0.6827,
+                          method: str = "hpd") -> tuple[float, float]:
+        """Credible interval for one sampled parameter.
+
+        ``method='hpd'`` (default) returns the shortest interval containing
+        ``level`` of the posterior mass.  Unlike the equal-tailed interval
+        used by :meth:`summary`, it still contains the parameter when the
+        posterior piles up against a prior bound (e.g. [M/H] at the grid
+        edge).  ``method='equal'`` gives the equal-tailed interval.
+        """
+        if name not in self.param_names:
+            raise KeyError(f"'{name}' is not a sampled parameter ({self.param_names})")
+        if not 0.0 < level < 1.0:
+            raise ValueError("level must be in (0, 1)")
+        x = np.sort(self.samples[:, self.param_names.index(name)])
+        n = len(x)
+        if method == "equal":
+            a = 0.5 * (1.0 - level)
+            return float(np.quantile(x, a)), float(np.quantile(x, 1.0 - a))
+        if method != "hpd":
+            raise ValueError("method must be 'hpd' or 'equal'")
+        k = max(int(np.ceil(level * n)), 1)
+        if k >= n:
+            return float(x[0]), float(x[-1])
+        width = x[k:] - x[:n - k]
+        i = int(np.argmin(width))
+        return float(x[i]), float(x[i + k])
+
     def map_estimate(self) -> dict[str, float]:
         """Return the maximum a-posteriori sample as a {parameter: value} dict."""
         idx = int(np.argmax(self.log_prob))
@@ -137,6 +185,7 @@ class InverseResult:
             "meta": "[M/H]     ",
             "a_v":  "Av    [mag]",
             "d":    "d      [cm]",
+            "sigma_sys": "sigma_sys [mag]",
         }
 
         print(f"\n{'─'*60}")
@@ -156,6 +205,12 @@ class InverseResult:
         if self.autocorr_time is not None:
             tau = ' / '.join(f"{x:.1f}" for x in np.ravel(self.autocorr_time))
             print(f"  Autocorr times : {tau}")
+        if self.converged is not None:
+            neff = ('' if self.n_eff is None else
+                    '  (n_eff = ' + ' / '.join(f"{x:.0f}" for x in np.ravel(self.n_eff)) + ')')
+            print(f"  Converged (N > 50 tau) : {self.converged}{neff}")
+        if self.chi2_best is not None and self.n_data is not None:
+            print(f"  Best-fit chi2 : {self.chi2_best:.2f} for {self.n_data} bands")
 
         print(f"{'─'*60}")
         for param in self.param_names:
@@ -193,6 +248,10 @@ class InverseResult:
             "n_thin":          self.n_thin,
             "param_names":     self.param_names,
             "fixed_params":    self.fixed_params,
+            "converged":       self.converged,
+            "chi2_best":       self.chi2_best,
+            "n_data":          self.n_data,
+            "init_info":       self.init_info,
         }
 
         arrays = dict(
@@ -205,6 +264,8 @@ class InverseResult:
         )
         if self.autocorr_time is not None:
             arrays["autocorr_time"] = self.autocorr_time
+        if self.n_eff is not None:
+            arrays["n_eff"] = self.n_eff
 
         np.savez_compressed(path, **arrays)
 
@@ -244,6 +305,11 @@ class InverseResult:
             autocorr_time=autocorr,
             param_names=meta.get("param_names", ["teff", "logg", "meta"]),
             fixed_params=meta.get("fixed_params", {}),
+            converged=meta.get("converged"),
+            n_eff=data["n_eff"] if "n_eff" in data else None,
+            chi2_best=meta.get("chi2_best"),
+            n_data=meta.get("n_data"),
+            init_info=meta.get("init_info", {}),
         )
 
 

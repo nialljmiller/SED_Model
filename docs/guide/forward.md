@@ -85,7 +85,7 @@ F_{\rm band} = \frac{\int F(\lambda)\, T(\lambda)\, \lambda\, d\lambda}{\int T(\
 m = -2.5 \log_{10}\!\left( F_{\rm band} / F_{zp} \right)
 \]
 
-with the zero-point \(F_{zp}\) precomputed per filter and system at load time ([Grids and Filters](grids-and-filters.md#zero-points)). Failed integrations or non-positive fluxes produce a sentinel magnitude of `-99.9` with a non-zero error flag rather than crashing.
+with the zero-point \(F_{zp}\) precomputed per filter and system at load time ([Grids and Filters](grids-and-filters.md#zero-points)). Failed integrations or non-positive fluxes produce a non-zero error flag rather than crashing: band magnitudes become `NaN` in `ForwardResult.magnitudes`, and the bolometric magnitude is `99.0` (MESA's value) when the integrated flux is not positive.
 
 ## Batch evaluation
 

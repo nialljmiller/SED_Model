@@ -25,7 +25,10 @@ module colors_def
    real(dp), parameter :: CLIGHT_CM_S  = 2.99792458d10
    real(dp), parameter :: AB_FNU_ZP    = 3.631d-20      ! 3631 Jy in erg/s/cm^2/Hz
    real(dp), parameter :: ST_FLAM_ZP   = 3.63d-9        ! flat f_lambda zp erg/s/cm^2/A
-   real(dp), parameter :: BAD_MAG      = -99.9d0        ! failure sentinel for magnitudes
+   real(dp), parameter :: BAD_MAG      = -99.9d0        ! failure sentinel for band magnitudes
+   ! MESA colors/private/bolometric.f90 returns 99.0 as the bolometric
+   ! magnitude when the integrated flux is not positive.
+   real(dp), parameter :: BOL_MAG_NONPOSITIVE_FLUX = 99.0d0
    real(dp), parameter :: TINY_VALUE   = 1.0d-300        ! positivity floor for linear interpolation
 
    ! Bolometric zero-point: irradiance corresponding to M_bol = 0 (IAU 2015
@@ -39,7 +42,7 @@ module colors_def
       LSUN_ERG_S * 10.0_dp**(0.4_dp*MBOL_SUN) / (4.0_dp*PI_DP*(10.0_dp*PC_CM)**2)
 
    public :: dp
-   public :: CLIGHT_CM_S, AB_FNU_ZP, ST_FLAM_ZP, BAD_MAG, TINY_VALUE
+   public :: CLIGHT_CM_S, AB_FNU_ZP, ST_FLAM_ZP, BAD_MAG, BOL_MAG_NONPOSITIVE_FLUX, TINY_VALUE
    public :: F_BOL_ZERO_POINT
 
 end module colors_def

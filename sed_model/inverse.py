@@ -64,6 +64,7 @@ from .filters import Filter
 from .forward import run_forward
 from .params import FitParams, fit_params_from_grid, PC_TO_CM
 from .io import InverseResult
+from ._inv_core import _FastModel, _Problem, initial_walkers
 
 if TYPE_CHECKING:
     from .sed_extinction import ExtinctionModel
@@ -145,6 +146,17 @@ def _log_posterior(
     )
 
 
+def _named_moves(emcee, name: str):
+    name = name.lower()
+    if name == "stretch":
+        return None
+    if name == "de":
+        return [(emcee.moves.DEMove(), 0.7),
+                (emcee.moves.DEMove(gamma0=1.0), 0.15),   # mode-hopping jumps
+                (emcee.moves.StretchMove(), 0.15)]
+    raise ValueError("moves string must be 'stretch' or 'de'")
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -168,20 +180,31 @@ def run_inverse(
     interp_method:     str   = "hermite_bounded",
     n_walkers:         int   = 32,
     n_steps:           int   = 2000,
-    n_burn:            int   = 500,
+    n_burn:            Optional[int] = 500,
     n_thin:            int   = 1,
     p0_centre:         Optional[dict] = None,
     p0_scatter:        float = 0.02,
     seed:              Optional[int]  = None,
     progress:          bool  = True,
     verbose:           bool  = True,
+    # --- options added after 0.3.1 (all default to a sensible/legacy-safe value) ---
+    init:              str   = "auto",
+    sys_floor:         float = 0.0,
+    fit_jitter:        bool  = False,
+    jitter_max:        float = 0.2,
+    priors:            Optional[dict] = None,
+    upper_limits:      Optional[list] = None,
+    auto_stop:         bool  = False,
+    moves=None,
+    pool=None,
 ) -> InverseResult:
     """Infer stellar parameters from observed broadband photometry.
 
     Parameters
     ----------
     obs_magnitudes : array-like, shape (n_filters,)
-        Observed magnitudes in the same order as ``filter_names``.
+        Observed magnitudes in the same order as ``filter_names``.  Non-finite
+        entries (NaN/inf) are treated as missing and dropped, with a warning.
     obs_uncertainties : array-like, shape (n_filters,)
         1-sigma uncertainties.  Must all be > 0.
     filter_names : list of str
@@ -207,22 +230,63 @@ def run_inverse(
     mag_system : {'AB', 'Vega', 'ST'}
     interp_method : {'hermite_bounded', 'hermite', 'linear'}
     n_walkers, n_steps, n_burn, n_thin : int
-        emcee settings.
+        emcee settings.  ``n_steps`` is the (maximum) chain length;
+        ``n_burn=None`` chooses the burn-in automatically (2 integrated
+        autocorrelation times, at most half the chain).
     p0_centre : dict or None
         Optional starting point keyed by parameter name, e.g.
-        ``{'teff': 5800, 'logg': 4.4, 'meta': 0.0}``.
+        ``{'teff': 5800, 'logg': 4.4, 'meta': 0.0}``.  When given, walkers
+        start in a small Gaussian ball around it (the legacy behaviour,
+        equivalent to ``init='ball'``).
     p0_scatter : float
-        Width of initial ball as fraction of each parameter's range.
+        Width of initial ball as fraction of each parameter's range
+        (only used by ``init='ball'`` / ``p0_centre``).
     seed : int or None
     progress : bool
         Show the emcee progress bar.
     verbose : bool
         Print the parameter summary and extinction configuration before
         sampling.  Set to False for batch runs.
+    init : {'auto', 'ball'}
+        Walker initialisation.  ``'auto'`` (default) does a stratified global
+        search over the prior box (log-uniform in Teff and distance), refines
+        the best distinct candidates with Levenberg-Marquardt, and starts the
+        walkers in Laplace-approximation ellipsoids around the optima
+        (several modes are populated in proportion to their approximate mass).
+        With ``p0_centre`` supplied, or ``init='ball'``, the legacy Gaussian
+        ball (centre = p0_centre or the middle of the prior box) is used.
+    sys_floor : float
+        Systematic error floor in mag, added in quadrature to every
+        uncertainty (default 0 = off).
+    fit_jitter : bool
+        Fit one extra common noise term ``sigma_sys`` (mag, flat prior on
+        [0, ``jitter_max``]) added in quadrature to all uncertainties.  It
+        appears as the last column of ``samples`` / entry of ``param_names``.
+    priors : dict or None
+        Extra priors on free parameters, e.g.
+        ``{'d': ('parallax', 2.0, 0.1)}`` (mas) or ``{'a_v': ('halfnormal', 0.5)}``.
+        See ``sed_model._inv_core.parse_priors`` for the supported forms; a
+        callable ``f(value) -> log prior`` is also accepted.
+    upper_limits : array-like of bool or None
+        Mark bands whose ``obs_magnitudes`` entry is a magnitude *lower limit*
+        (flux upper limit).  Their likelihood is Phi((m_model - m_obs)/sigma).
+    auto_stop : bool
+        Sample in blocks and stop early once the chain is >50 autocorrelation
+        times long and the estimate has stabilised; warns if ``n_steps`` is
+        reached first.
+    moves : emcee move, list, str or None
+        Passed to ``emcee.EnsembleSampler``.  ``None`` (default) means the
+        differential-evolution mixture ``'de'`` (mode-hopping jumps; handles
+        multimodal/degenerate posteriors) when ``init='auto'``, and emcee's
+        stretch move for the legacy ball.  ``'stretch'`` forces the latter.
+    pool : multiprocessing-style pool or None
+        Evaluate the posterior in parallel.
 
     Returns
     -------
     InverseResult
+        Includes ``converged``, ``n_eff``, ``chi2_best``, ``n_data`` and
+        ``init_info`` diagnostics in addition to the chain.
     """
     try:
         import emcee
@@ -253,8 +317,12 @@ def run_inverse(
         )
     if n_walkers < 6:
         raise ValueError("n_walkers must be >= 6 (2 × n_dim).")
-    if n_burn >= n_steps:
+    if n_burn is not None and n_burn >= n_steps:
         raise ValueError("n_burn must be < n_steps.")
+    if init not in ("auto", "ball"):
+        raise ValueError("init must be 'auto' or 'ball'.")
+    if sys_floor < 0:
+        raise ValueError("sys_floor must be >= 0.")
 
     available = {f.name for f in filters}
     missing   = set(filter_names) - available
@@ -263,6 +331,23 @@ def run_inverse(
             f"Filter names not in the supplied filters: {missing}. "
             f"Available: {available}"
         )
+
+    upper = (np.zeros(obs_mag.size, bool) if upper_limits is None
+             else np.asarray(upper_limits, dtype=bool))
+    if upper.shape != obs_mag.shape:
+        raise ValueError("upper_limits must have the same length as obs_magnitudes.")
+
+    finite = np.isfinite(obs_mag) & np.isfinite(obs_err)
+    if not finite.all():
+        warnings.warn(
+            f"Dropping {int((~finite).sum())} band(s) with non-finite magnitude or "
+            f"uncertainty: {[n for n, ok in zip(filter_names, finite) if not ok]}",
+            UserWarning, stacklevel=2,
+        )
+        obs_mag, obs_err, upper = obs_mag[finite], obs_err[finite], upper[finite]
+        filter_names = [n for n, ok in zip(filter_names, finite) if ok]
+    if obs_mag.size == 0 or upper.all():
+        raise ValueError("No detected (finite, non-upper-limit) bands to fit.")
 
     # ------------------------------------------------------------------
     # Build FitParams if not supplied
@@ -278,12 +363,13 @@ def run_inverse(
             stacklevel=2,
         )
 
-    n_dim = fit_params.n_free
-    if n_dim == 0:
+    n_dim_phys = fit_params.n_free
+    if n_dim_phys == 0:
         raise ValueError(
             "All parameters are fixed — nothing to sample. "
             "Make at least one parameter free in fit_params."
         )
+    n_dim = n_dim_phys + (1 if fit_jitter else 0)
     if n_walkers < 2 * n_dim:
         raise ValueError(
             f"n_walkers ({n_walkers}) must be >= 2 × n_free ({2*n_dim}). "
@@ -318,25 +404,78 @@ def run_inverse(
             print("[inverse] Extinction: disabled")
 
     # ------------------------------------------------------------------
+    # Posterior object (lean photometry evaluator; same kernels as run_forward)
+    # ------------------------------------------------------------------
+    model = _FastModel(grid, filters, list(filter_names), R, mag_system,
+                       interp_method, extinction)
+    problem = _Problem(model, fit_params, obs_mag, obs_err, upper=upper,
+                       priors=priors, sys_floor=sys_floor,
+                       fit_jitter=fit_jitter, jitter_max=jitter_max)
+
+    # ------------------------------------------------------------------
     # Initial walker positions
     # ------------------------------------------------------------------
     rng = np.random.default_rng(seed)
-    p0  = fit_params.initial_ball(
-        n_walkers, centre=p0_centre or None, scatter=p0_scatter, rng=rng
-    )
+    use_ball = (init == "ball") or (p0_centre is not None)
+    if use_ball:
+        p0 = fit_params.initial_ball(
+            n_walkers, centre=p0_centre or None, scatter=p0_scatter, rng=rng
+        )
+        if fit_jitter:
+            extra = np.clip(np.abs(rng.normal(0.0, 0.1 * jitter_max, n_walkers)) + 1e-4,
+                            1e-4, jitter_max)
+            p0 = np.column_stack([p0, extra])
+        init_info = dict(method="ball")
+    else:
+        p0, init_info = initial_walkers(problem, n_walkers, rng)
 
     # ------------------------------------------------------------------
     # Run MCMC
     # ------------------------------------------------------------------
-    sampler = emcee.EnsembleSampler(
-        n_walkers, n_dim, _log_posterior,
-        args=(
-            obs_mag, obs_err, list(filter_names),
-            R, fit_params, grid, filters,
-            mag_system, interp_method, extinction,
-        ),
-    )
-    sampler.run_mcmc(p0, n_steps, progress=progress)
+    if moves is None and not use_ball:
+        # Differential-evolution moves mix between modes and decorrelate ~2x
+        # faster than the plain stretch move (see CHANGELOG); the legacy ball
+        # path keeps emcee's default stretch move.
+        moves = "de"
+    if isinstance(moves, str):
+        moves = _named_moves(emcee, moves)
+    if pool is None:
+        sampler = emcee.EnsembleSampler(n_walkers, n_dim, problem.batch,
+                                        moves=moves, vectorize=True)
+    else:
+        sampler = emcee.EnsembleSampler(n_walkers, n_dim, problem,
+                                        moves=moves, pool=pool)
+
+    done = 0
+    state = p0
+    converged_auto = False
+    if auto_stop:
+        block = max(100, n_steps // 20)
+        last_tau = None
+        while done < n_steps:
+            k = min(block, n_steps - done)
+            state = sampler.run_mcmc(state, k, progress=progress, skip_initial_state_check=done > 0)
+            done += k
+            try:
+                tau_now = sampler.get_autocorr_time(tol=0, quiet=True)
+            except Exception:
+                continue
+            tmax = float(np.nanmax(tau_now))
+            if np.isfinite(tmax) and done > 50.0 * tmax:
+                if last_tau is not None and abs(tmax - last_tau) / tmax < 0.05:
+                    converged_auto = True
+                    break
+            if np.isfinite(tmax):
+                last_tau = tmax
+        if not converged_auto:
+            warnings.warn(
+                f"auto_stop: chain did not reach 50 autocorrelation times within "
+                f"n_steps={n_steps}; increase n_steps or check for multimodality.",
+                UserWarning, stacklevel=2,
+            )
+    else:
+        sampler.run_mcmc(state, n_steps, progress=progress)
+        done = n_steps
 
     acc = sampler.acceptance_fraction
     if np.any(acc < 0.1) or np.any(acc > 0.9):
@@ -348,12 +487,31 @@ def run_inverse(
         )
 
     try:
-        tau = sampler.get_autocorr_time(quiet=True)
+        tau = sampler.get_autocorr_time(tol=0, quiet=True)
+        if not np.all(np.isfinite(tau)):
+            tau = None
     except Exception:
         tau = None
 
-    flat_samples  = sampler.get_chain(discard=n_burn, thin=n_thin, flat=True)
-    flat_log_prob = sampler.get_log_prob(discard=n_burn, thin=n_thin, flat=True)
+    if n_burn is None:
+        n_burn_eff = 0 if tau is None else int(min(done // 2, np.ceil(2.0 * np.nanmax(tau))))
+    else:
+        n_burn_eff = int(min(n_burn, done - 1))
+
+    flat_samples  = sampler.get_chain(discard=n_burn_eff, thin=n_thin, flat=True)
+    flat_log_prob = sampler.get_log_prob(discard=n_burn_eff, thin=n_thin, flat=True)
+
+    converged = None
+    n_eff = None
+    if tau is not None:
+        n_post = done - n_burn_eff
+        converged = bool(n_post > 50.0 * float(np.nanmax(tau)))
+        n_eff = n_walkers * n_post / np.maximum(tau, 1.0)
+
+    ib = int(np.argmax(flat_log_prob))
+    chi2_best = float(problem.chi2(flat_samples[ib]))
+    init_info = dict(init_info)
+    init_info["n_evals"] = int(problem.n_evals)
 
     fixed_params = {name: getattr(fit_params, name).value for name in fit_params.fixed_names}
 
@@ -367,11 +525,16 @@ def run_inverse(
         d=float(fit_params.d.value if fit_params.d.is_fixed else np.nan),
         mag_system=mag_system,
         n_walkers=n_walkers,
-        n_steps=n_steps,
-        n_burn=n_burn,
+        n_steps=done,
+        n_burn=n_burn_eff,
         n_thin=n_thin,
         acceptance_fraction=acc,
         autocorr_time=tau,
-        param_names=list(fit_params.free_names),
+        param_names=list(problem.names),
         fixed_params=fixed_params,
+        converged=converged,
+        n_eff=n_eff,
+        chi2_best=chi2_best,
+        n_data=problem.n_data,
+        init_info=init_info,
     )
