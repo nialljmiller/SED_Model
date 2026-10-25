@@ -142,3 +142,26 @@ def test_linear_interp_handles_nan_cube_node():
     flux, ierr = cc.interp_sed_linear(0.4, 0.0, 0.0, x, one, one, cube)
     assert np.all(np.isfinite(flux))
     assert ierr >= 1
+
+
+def test_filter_header_row_with_metadata_field(tmp_path):
+    """SED_Tools >= 0.4.0 appends ``;``-separated metadata as a third comma
+    field of the column row.  The loader reads only the two data columns, for
+    that layout, the bare row, and the older leading ``# Key: value`` lines."""
+    from sed_model.filters import load_filters
+
+    rows = "3200.0,2.4e-08\n3300.0,0.5\n3400.0,0.9\n3500.0,0.0\n"
+    layouts = {
+        "bare": "Wavelength,Transmission\n" + rows,
+        "meta": ("Wavelength,Transmission,FilterID=GAIA/GAIA3.G;DetectorType=photon;"
+                 "DetectorTypeSource=svo-curve-match;WavelengthUnit=Angstrom;"
+                 "Components=filter+qe+instrument\n" + rows),
+        "comments": "# FilterID: GAIA/GAIA3.G\n# DetectorType: photon\nWavelength,Transmission\n" + rows,
+    }
+    waves = {}
+    for name, text in layouts.items():
+        (tmp_path / f"{name}.dat").write_text(text)
+        (f,) = load_filters([tmp_path / f"{name}.dat"])
+        waves[name] = (f.wavelengths.tolist(), f.transmission.tolist())
+    assert waves["meta"] == waves["bare"] == waves["comments"]
+    assert waves["meta"][0] == [3200.0, 3300.0, 3400.0, 3500.0]

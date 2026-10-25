@@ -33,18 +33,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Path configuration
 # ---------------------------------------------------------------------------
-KURUCZ_DIR  = os.environ.get(
-    "CC_KURUCZ_DIR",
-    os.path.expanduser("~/SED_Tools/data/stellar_models/Kurucz2003all"),
-)
-JOHNSON_DIR = os.environ.get(
-    "CC_JOHNSON_DIR",
-    os.path.expanduser("~/SED_Tools/data/filters/Generic/Johnson"),
-)
-VEGA_SED    = os.environ.get(
-    "CC_VEGA_SED",
-    os.path.expanduser("~/SED_Tools/data/stellar_models/vega_flam.csv"),
-)
+from _data_paths import KURUCZ_DIR, JOHNSON_DIR, VEGA_SED
 
 R_SUN  = 6.957e10
 D_10PC = 3.0857e19
