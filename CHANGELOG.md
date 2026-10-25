@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.1] — 2026-10-25
+
+- **Filter detector type.** `load_filters` reads `DetectorType=photon|energy`
+  from the column-name row that SED_Tools >= 0.4.0 writes
+  (`Wavelength,Transmission,...;DetectorType=energy;...`). An energy-counting
+  curve is converted to its photon-counting equivalent T/lambda, rescaled to
+  its original peak, so that the lambda-weighted band integrals equal
+  int(F T) / int(T), as in the MESA colors `load_filter`. A missing or
+  unrecognised tag means photon counting (a warning for an unrecognised one).
+  The new `Filter.detector_type` records the tag; for `'energy'` filters
+  `Filter.transmission` holds the converted curve. Zero points and magnitudes
+  both follow. Only the column row is read; leading `# DetectorType:` comment
+  lines (SED_Tools 0.3.0) are ignored.
+- `WavelengthUnit` on the column row (the unit of that file's wavelength
+  column) is honoured: known units are converted to Angstrom with the same
+  table as SED_Tools, an unknown unit raises `ValueError`. Files without the
+  tag are read as Angstrom, as before.
+
 ## [0.4.0] — 2026-10-25
 
 Validated against the MESA `colors` module, MSG and MIST (see

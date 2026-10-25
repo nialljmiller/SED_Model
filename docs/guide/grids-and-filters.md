@@ -56,7 +56,7 @@ Filter files are two-column (wavelength Å, transmission 0–1); `#` comments ar
 
 ### Zero-points
 
-Each `Filter` carries precomputed zero-points using the same integrals as MESA `colors/private/synthetic.f90` (photon counting, as MESA does by default). The photon-counting forms are:
+Each `Filter` carries precomputed zero-points using the same integrals as MESA `colors/private/synthetic.f90` (photon counting, as MESA does; an energy-counting curve tagged `DetectorType=energy` on the column row is converted to T/λ first, see below). The photon-counting forms are:
 
 | System | Definition |
 |---|---|
@@ -68,3 +68,19 @@ The Vega zero-point requires a Vega reference SED (CSV: wavelength Å, flux erg/
 
 !!! note "Trapezoid vs Simpson"
     The Python zero-point integrals use the trapezoid rule (valid for non-uniform wavelength grids); the Fortran runtime uses adaptive Simpson for the in-band flux. The difference is negligible for the dense wavelength grids produced by SED_Tools, and is folded into the tolerances of the forward test suite.
+
+
+## Detector type
+
+SED_Tools tags every filter file with the response convention of its curve, as a `;`-separated field after the second comma of the column-name row:
+
+```
+Wavelength,Transmission,FilterID=GAIA/GAIA3.G;DetectorType=photon;WavelengthUnit=Angstrom
+```
+
+`load_filters` reads `DetectorType` (`photon` or `energy`, case-insensitive). A photon-counting curve (CCD detectors, e.g. Gaia) is used as is. An energy-counting curve T<sub>E</sub> (e.g. the classical Bessell UBVRI curves) is converted to its photon-counting equivalent T<sub>E</sub>/λ (Bessell & Murphy 2012, eq. A9), rescaled to keep its peak, so that the λ-weighted integrals above reduce to ∫F T<sub>E</sub> / ∫T<sub>E</sub>. This matches the MESA colors module.
+
+- `Filter.detector_type` is the tag the file carried (`'photon'` or `'energy'`). For `'energy'` filters `Filter.transmission` holds the converted curve, not the file's values.
+- A missing tag means photon counting; an unrecognised value does too, with a warning.
+- Only the column-name row is read. Leading `# DetectorType:` comment lines, as written by SED_Tools 0.3.0, are ignored.
+- `WavelengthUnit` is the unit of the file's own wavelength column (SED_Tools writes `Angstrom` for its own products). Known units are converted to Angstrom; an unknown unit raises `ValueError`. Files without the tag are read as Angstrom.

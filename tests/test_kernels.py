@@ -219,17 +219,82 @@ def test_energy_counting_zero_points():
     assert ab_e == pytest.approx(expect, rel=1e-12)
 
 
-def test_filters_default_to_photon_counting(tmp_path):
-    """Loaders weight by wavelength (photon counting), whatever the file's
-    comment lines say; detector-type tags are not read yet."""
-    from sed_model.filters import load_filters
+_DET_BODY = "1000,0\n2000,1\n3000,0.5\n4000,0\n"
 
-    body = "Wavelength,Transmission\n1000,0\n2000,1\n3000,1\n4000,0\n"
-    (tmp_path / "plain.dat").write_text(body)
-    (tmp_path / "tagged.dat").write_text("# DetectorType: energy\n" + body)
-    plain, tagged = load_filters([tmp_path / "plain.dat", tmp_path / "tagged.dat"])
-    assert plain.photon_counting and tagged.photon_counting
-    assert plain.ab_zero_point == tagged.ab_zero_point
+
+def _load_one(tmp_path, name, text, **kw):
+    from sed_model.filters import load_filters
+    (tmp_path / name).write_text(text)
+    (f,) = load_filters([tmp_path / name], **kw)
+    return f
+
+
+def test_detector_type_read_from_column_row(tmp_path):
+    """DetectorType on the column row (SED_Tools >= 0.4.0), case-insensitive,
+    anywhere among the ';'-separated fields; a missing tag is photon."""
+    import warnings
+    warnings.simplefilter("error")
+    plain = _load_one(tmp_path, "plain.dat", "Wavelength,Transmission\n" + _DET_BODY)
+    photon = _load_one(tmp_path, "photon.dat",
+        "Wavelength,Transmission,FilterID=A%2Fb;DetectorType=photon;WavelengthUnit=Angstrom\n" + _DET_BODY)
+    energy = _load_one(tmp_path, "energy.dat",
+        "Wavelength,Transmission,FilterID=A%2Fb;DetectorType=Energy;WavelengthUnit=Angstrom\n" + _DET_BODY)
+    assert plain.detector_type == photon.detector_type == "photon"
+    assert energy.detector_type == "energy"
+    assert plain.transmission.tolist() == photon.transmission.tolist()
+    assert plain.photon_counting and photon.photon_counting and energy.photon_counting
+
+
+def test_energy_curve_is_converted_like_mesa(tmp_path):
+    """An energy-counting curve becomes T/lambda, rescaled to the old peak
+    (MESA photon_counting_filters load_filter), and its zero points equal the
+    unweighted energy integrals of the file's own curve."""
+    energy = _load_one(tmp_path, "e.dat",
+        "Wavelength,Transmission,DetectorType=energy\n" + _DET_BODY)
+    wave = np.array([1000.0, 2000.0, 3000.0, 4000.0])
+    raw = np.array([0.0, 1.0, 0.5, 0.0])
+    conv = raw / wave
+    conv *= raw.max() / conv.max()
+    np.testing.assert_allclose(energy.transmission, conv, rtol=1e-14)
+    assert energy.transmission.max() == pytest.approx(raw.max(), rel=1e-14)
+
+    ab_e, _ = cc.ab_zero_point(wave, raw, photon_counting=0)
+    st_e, _ = cc.st_zero_point(wave, raw, photon_counting=0)
+    assert energy.ab_zero_point == pytest.approx(ab_e, rel=1e-12)
+    assert energy.st_zero_point == pytest.approx(st_e, rel=1e-12)
+    photon = _load_one(tmp_path, "p.dat", "Wavelength,Transmission\n" + _DET_BODY)
+    assert energy.ab_zero_point != photon.ab_zero_point
+
+
+def test_detector_type_comment_lines_are_ignored(tmp_path):
+    """Only the column row carries metadata; leading '# DetectorType:' lines
+    (SED_Tools 0.3.0) are plain comments."""
+    f = _load_one(tmp_path, "l.dat",
+        "# FilterID: X/y\n# DetectorType: energy\nWavelength,Transmission\n" + _DET_BODY)
+    assert f.detector_type == "photon"
+    g = _load_one(tmp_path, "b.dat",
+        "# DetectorType: energy\nWavelength,Transmission,DetectorType=photon\n" + _DET_BODY)
+    assert g.detector_type == "photon"
+
+
+def test_unrecognised_detector_type_warns(tmp_path):
+    with pytest.warns(UserWarning, match="unknown DetectorType"):
+        f = _load_one(tmp_path, "u.dat",
+            "Wavelength,Transmission,DetectorType=bolometer\n" + _DET_BODY)
+    assert f.detector_type == "photon"
+
+
+def test_wavelength_unit_is_converted_to_angstrom(tmp_path):
+    """WavelengthUnit names the unit of the file's own wavelength column."""
+    ang = _load_one(tmp_path, "a.dat",
+        "Wavelength,Transmission,WavelengthUnit=Angstrom\n" + _DET_BODY)
+    nm = _load_one(tmp_path, "n.dat",
+        "Wavelength,Transmission,WavelengthUnit=nm\n100,0\n200,1\n300,0.5\n400,0\n")
+    assert nm.wavelengths.tolist() == ang.wavelengths.tolist()
+    assert nm.ab_zero_point == pytest.approx(ang.ab_zero_point, rel=1e-13)
+    with pytest.raises(ValueError, match="WavelengthUnit"):
+        _load_one(tmp_path, "x.dat",
+            "Wavelength,Transmission,WavelengthUnit=parsec\n" + _DET_BODY)
 
 
 def test_nearest_grid_distance_matches_mesa_interp_rad():
