@@ -57,9 +57,20 @@ Three schemes operate on the 3D `(Teff, logg, [M/H])` flux cube, vectorised over
 - **`hermite`** — raw cubic Hermite tensor interpolation. Tangents on non-uniform grids are the spacing-weighted average of the one-sided slopes in the interior and one-sided at grid edges. Axes with a single grid point are treated as degenerate dimensions. No positivity floor is applied, so the result can undershoot below zero.
 - **`linear`** — trilinear interpolation. A non-finite or non-positive result falls back to the nearest grid node; values are floored at `1e-300`.
 
-If the query point falls outside the grid, it is clamped to the grid boundary and the result is flagged (`clamped=True`).
+If the query point falls outside the grid, it is clamped to the grid boundary and the result is flagged (`clamped=True`). `clamped` is also set when the bolometric flux is not positive, or when plain `hermite` reports an interpolation error. It is not set by `linear` filling a few wavelength bins from the nearest node, and `hermite_bounded` raises instead of flagging when it has no usable SED.
 
-The `nearest_grid_distance` diagnostic (distance in normalised parameter space from the nearest grid node) is computed for every call so you can gauge how far from tabulated models the interpolation reached.
+### Empty grid cells
+
+A grid directory holds a full rectangular `(Teff, logg, [M/H])` cube, but not every node has a model. For `Kurucz2003all` about 40 % of the cube is empty, mostly the hot, low-gravity corners. Empty nodes are stored as all-zero spectra, and interpolating through them gives unreliable results.
+
+`run_forward` emits a `UserWarning` ("lies in a grid cell with empty nodes") when:
+
+- any corner of the cell containing the query is empty, for every interpolation method. A query exactly on a populated node never warns, because the empty neighbours carry no weight. The result can be wildly wrong here: with an empty corner the flux underflows and magnitudes come out near +770.
+- for `hermite` and `hermite_bounded` only, any node the derivative estimates read is empty, even though all eight corners are populated. These are the axis-aligned neighbours of the corners: one extra node on each side of the cell along each axis. Hermite next to such a gap can be off by several percent in bolometric flux (up to about 0.08 mag in photometry in the comparisons described under [Testing](../testing.md)), which is MESA's behaviour and is reproduced exactly. `linear` does not use these nodes and is not affected.
+
+The warning is advisory: the interpolated values are returned unchanged. `grid.cell_has_empty_nodes(teff, logg, meta, stencil=True)` runs the same check without a forward call. The inverse model avoids empty corners by treating them as zero posterior (see [Inverse Model](inverse.md)).
+
+The `nearest_grid_distance` diagnostic (distance in normalised parameter space from the nearest tabulated model, MESA's `Interp_rad`) is computed for every call so you can gauge how far from tabulated models the interpolation reached.
 
 ## `ForwardResult`
 
@@ -71,7 +82,7 @@ The `nearest_grid_distance` diagnostic (distance in normalised parameter space f
 | `magnitudes` | `{filter_name: magnitude}` in the requested system |
 | `band_fluxes` | `{filter_name: in-band flux}` (erg/s/cm²/Å) |
 | `bol_flux`, `bol_mag` | bolometric flux and magnitude (`Mag_bol = -2.5 log10(F_bol / F_bol,0)`, where `F_bol,0` is the IAU 2015 B2 irradiance of an `M_bol = 0` source, so the Sun at 10 pc has `M_bol = 4.74`; samples with a non-finite or negative flux are zeroed before integrating) |
-| `nearest_grid_distance`, `clamped` | interpolation diagnostics |
+| `nearest_grid_distance`, `clamped` | interpolation diagnostics: distance to the nearest tabulated model, and whether the query was clamped or an interpolation failed |
 | `teff`, `logg`, `meta`, `R`, `d`, `a_v` | the parameters that produced this result (self-describing) |
 | `mag_system`, `extinction_applied` | bookkeeping |
 

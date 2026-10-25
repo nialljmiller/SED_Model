@@ -36,16 +36,22 @@ Large API changes, changes to the Fortran kernels, or changes to photometric zer
 ```bash
 git clone https://github.com/nialljmiller/SED_Model.git
 cd SED_Model
-python -m pip install -e ".[dev]"
-python -m pip install -e .    # or: make
-````
+python -m pip install -e ".[dev]"    # needs gfortran; builds the Fortran extension
+```
 
-Run tests with:
+`make` builds the extension in place as a quicker alternative to the editable install.
+
+Run the tests from **outside** the source tree against an installed build (inside it, `import sed_model` finds the uncompiled sources and every test is skipped):
 
 ```bash
-pytest tests/test_forward.py
-pytest tests/test_inverse.py
+cd /tmp
+python -m pytest /path/to/SED_Model/tests/test_kernels.py   # no data needed
+python -m pytest /path/to/SED_Model/tests/test_forward.py /path/to/SED_Model/tests/test_inverse.py
 ```
+
+`test_forward.py` and `test_inverse.py` need SED_Tools data products and skip without them; see [Testing and Validation](docs/testing.md) for where they are looked for. Pull requests run the full build and the kernel tests on Linux and macOS.
+
+Changes go through a branch and pull request; do not push to `main`. Merging a pull request that changes the `version` in `meson.build` publishes that version to PyPI, so leave the version alone unless you are asked to bump it. Add an entry to `CHANGELOG.md` for any user-visible change.
 
 ## Code Style
 

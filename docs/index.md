@@ -31,7 +31,9 @@ SED_Model  ->  generate synthetic magnitudes and infer stellar parameters
 - Bayesian stellar-parameter inference via `emcee` with fixed, bounded, and fully free parameter modes.
 - Structured result containers with summaries, persistence to CSV and NPZ, and interpolation diagnostics.
 - Fortran kernels for performance-critical paths, compiled via `f2py`/Meson and shipped as prebuilt wheels.
-- Forward tests validated against MESA colors reference outputs; inverse tests verified by self-consistent synthetic recovery.
+- Reads the `DetectorType` and `WavelengthUnit` tags that SED_Tools writes on each filter file.
+- Warns when a query falls in a part of the grid that has no model.
+- Forward model checked against the MESA `colors` module (magnitudes agree to double-precision rounding), MSG and MIST; inverse model benchmarked by injection and recovery. See [Testing and Validation](testing.md).
 
 ## Where to go next
 
@@ -40,6 +42,8 @@ SED_Model  ->  generate synthetic magnitudes and infer stellar parameters
 - [User Guide](guide/grids-and-filters.md) — grids, filters, both models, parameter modes, extinction, and I/O.
 - [Demonstrations](demos/index.md) — full walkthroughs of every script in `demos/`, with the actual source embedded.
 - [API Reference](api.md) — generated directly from the docstrings in the source.
+- [Fortran kernels](fortran.md) — how the Fortran sources map onto MESA's `colors` module.
+- [Testing and Validation](testing.md) — what is tested, and how the results compare with MESA, MSG and MIST.
 
 ## License
 

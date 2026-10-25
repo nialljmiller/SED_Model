@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+Documentation only.
+
+- README: the Quick Start now loads a Vega spectrum before asking for the Vega
+  system; the inverse-model section, test instructions and repository layout
+  describe the current code; added citation and credits sections.
+- Documentation: warning behaviour for empty grid cells, the full set of
+  `InverseResult` fields, calibration numbers from the 0.4.1 re-test (including
+  the effect of a fixed radius), updated cross-code validation results, and a
+  new Fortran Kernels page replacing `MIGRATION.md`.
+- `grids-and-filters.md` listed a non-existent `interp_radius`; the method is
+  `nearest_grid_distance`.
+- `demos/api_usage.py` asked for the Vega system without loading a Vega
+  spectrum and failed; it now passes `vega_sed_path`.
+- `CONTRIBUTING.md`: current test and release workflow.
+- `CITATION.cff` lists both licences. Package classifiers list Python
+  3.10-3.14 and Linux/macOS instead of "OS Independent".
+
 ## [0.4.2] — 2026-10-25
 
 - **The empty-node warning now covers the Hermite stencil.** With

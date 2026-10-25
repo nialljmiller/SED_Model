@@ -34,7 +34,9 @@ Both directions operate through a shared `FitParams` object. The same parameter 
 - Bayesian stellar-parameter inference via `emcee` with fixed, bounded, and fully free parameter modes.
 - Structured result containers with summaries, persistence to CSV and NPZ, and interpolation diagnostics.
 - Fortran kernels for performance-critical paths, compiled via `f2py`/Meson and shipped as prebuilt wheels.
-- Forward tests validated against MESA colors reference outputs; inverse tests verified by self-consistent synthetic recovery.
+- Reads the `DetectorType` (photon or energy counting) and `WavelengthUnit` tags that SED_Tools writes on each filter file.
+- Warns when a query falls in a part of the grid that has no model (see [Forward Model](#forward-model)).
+- Forward model checked against the MESA `colors` module (magnitudes agree to double-precision rounding), MSG and MIST; inverse model benchmarked by injection and recovery. See [Testing](#testing).
 
 ---
 
@@ -98,10 +100,13 @@ Each release also provides, on the [GitHub releases page](https://github.com/nia
 from sed_model import load_grid, load_filters, run_forward, run_inverse
 
 grid = load_grid("/path/to/Kurucz2003all/")
-filters = load_filters([
-    "/path/to/filters/GAIA/G.dat",
-    "/path/to/filters/2MASS/J.dat",
-])
+filters = load_filters(
+    [
+        "/path/to/filters/GAIA/G.dat",
+        "/path/to/filters/2MASS/J.dat",
+    ],
+    vega_sed_path="/path/to/stellar_models/vega_flam.csv",  # needed for mag_system="Vega"
+)
 
 # Forward model
 result = run_forward(
@@ -142,7 +147,7 @@ from sed_model import load_grid
 grid = load_grid("/path/to/Kurucz2003all/")
 ```
 
-`load_grid()` expects a MESA/SED_Tools-style atmosphere grid containing a `flux_cube.bin`, with optional validation against a co-located `lookup_table.csv`.
+`load_grid()` expects a MESA/SED_Tools-style atmosphere grid directory containing a `flux_cube.bin`. A co-located `lookup_table.csv` can be checked with `sed_model.grid.validate_lookup_table(grid)`; it is not read at load time.
 
 The returned `AtmosphereGrid` exposes:
 
@@ -151,7 +156,8 @@ The returned `AtmosphereGrid` exposes:
 * `wavelengths`
 * `in_bounds(teff, logg, meta)`
 * `clamp(teff, logg, meta)`
-* `nearest_grid_distance(teff, logg, meta)`
+* `nearest_grid_distance(teff, logg, meta)` (same quantity as MESA's `Interp_rad`)
+* `cell_has_empty_nodes(teff, logg, meta, stencil=False)`
 
 ---
 
@@ -166,17 +172,21 @@ filters = load_filters([
 ])
 
 filters = load_filters_from_instrument_dir(
-    "/path/to/filters/Generic/Johnson"
+    "/path/to/filters/Generic/Johnson",
+    vega_sed_path="/path/to/stellar_models/vega_flam.csv",  # optional
 )
 ```
 
 Each `Filter` stores:
 
 * `name`
-* `wavelengths`
+* `wavelengths` (Å)
 * `transmission`
+* `detector_type` (`"photon"` or `"energy"`, from the file's `DetectorType` tag)
 * Vega, AB, and ST zero-points
 * `zero_point(system)`
+
+The Vega system needs a Vega reference SED (`vega_sed_path`); without it only AB and ST are available. An energy-counting curve is converted to its photon-counting equivalent when it is loaded; see [Grids and Filters](https://nialljmiller.github.io/SED_Model/guide/grids-and-filters/#detector-type).
 
 Supported systems are:
 
@@ -205,6 +215,8 @@ result = run_forward(
     interp_method="hermite_bounded",  # or "hermite", "linear"
 )
 ```
+
+If the query lies in a grid cell that touches a node with no model, `run_forward` emits a `UserWarning`. Kurucz-type grids are stored as a full rectangular cube in which a large fraction of the nodes are empty (about 40 % for `Kurucz2003all`). With the Hermite methods the warning also covers the extra nodes the derivative estimates read around the cell. The result is still returned, but it is unreliable there: in a cell with an empty corner the magnitudes can be wildly wrong, and next to an empty node Hermite can overshoot by several percent in flux. `linear` does not read the extra nodes. `grid.cell_has_empty_nodes(...)` runs the same check without a forward call.
 
 `ForwardResult` contains:
 
@@ -237,31 +249,35 @@ result = run_inverse(
     grid=grid,
     filters=filters,
     n_walkers=32,
-    n_steps=1000,
-    n_burn=300,
+    n_steps=2000,
+    n_burn=500,
     seed=42,
 )
 ```
 
+By default the walkers are started from a global search plus Levenberg-Marquardt refinement (`init="auto"`) and moved with a differential-evolution mixture, rather than from a ball at the middle of the prior box. Optional extras: `sys_floor` and `fit_jitter` (systematic error terms), `priors` (e.g. a parallax prior on distance), and `upper_limits`. See the [Inverse Model guide](https://nialljmiller.github.io/SED_Model/guide/inverse/).
+
 `InverseResult` contains:
 
-* `samples`
-* `log_prob`
-* `filter_names`
-* `obs_magnitudes`
-* `obs_uncertainties`
+* `samples`, `log_prob`, `param_names`, `fixed_params`
+* `filter_names`, `obs_magnitudes`, `obs_uncertainties`
 * `R`, `d`, `mag_system`
 * `n_walkers`, `n_steps`, `n_burn`, `n_thin`
 * `acceptance_fraction`
-* `autocorr_time`
+* `autocorr_time`, `converged`, `n_eff`
+* `chi2_best`, `n_data`, `init_info`
 
 It also provides:
 
 ```python
 result.summary()
 result.print_summary()
+result.map_estimate()
+result.credible_interval("teff", 0.68, method="hpd")
 result.save("posterior.npz")
 ```
+
+Intervals are only as good as the model. With real photometry the atmosphere library, filter curves and zero points add systematic errors that the likelihood does not know about; use `fit_jitter=True` or `sys_floor`, and check `converged`.
 
 ---
 
@@ -385,13 +401,18 @@ The site is built with MkDocs from the `docs/` directory and embeds the demo sou
 ## Testing
 
 ```bash
-pytest tests/test_forward.py
-pytest tests/test_inverse.py
+pytest tests/test_kernels.py     # needs no data
+pytest tests/test_forward.py     # needs a Kurucz grid and filters
+pytest tests/test_inverse.py     # needs a Kurucz grid and filters
 ```
 
-The forward tests verify grid loading, bounds checking, interpolation, filter loading, zero-points, bolometric quantities, and synthetic magnitudes.
+Run these from outside the source tree against an installed build: inside it, `import sed_model` finds the uncompiled sources and every test is skipped. Tests that need data look in `~/.sed_tools/data`, `~/SED_Tools/data` and `$MESA_DIR/data/colors_data`.
 
-The inverse tests verify self-consistent posterior recovery and `InverseResult` persistence.
+* `test_kernels.py` covers the Fortran kernels and filter handling (MESA colors unit-test cases, detector type, wavelength units, empty-grid warnings) without any data files.
+* `test_forward.py` compares magnitudes and bolometric quantities against reference values from the MESA colors unit test.
+* `test_inverse.py` injects synthetic photometry and checks that the posterior recovers the truth, and covers `InverseResult` persistence and input validation.
+
+For the comparison with MESA, MSG and MIST, and what to expect when comparing with other codes, see [Testing and Validation](https://nialljmiller.github.io/SED_Model/testing/).
 
 ---
 
@@ -400,29 +421,40 @@ The inverse tests verify self-consistent posterior recovery and `InverseResult` 
 ```text
 sed_model/
   __init__.py
-  grid.py
-  filters.py
-  forward.py
-  inverse.py
-  params.py
-  io.py
-  sed_extinction.py
+  grid.py            atmosphere grids
+  filters.py         filter files, detector type, zero-points
+  forward.py         forward model
+  inverse.py         inverse model (run_inverse)
+  _inv_core.py       fast likelihood and initialisation for the inverse model
+  params.py          FitParams / ParamSpec
+  io.py              result containers and CSV / NPZ output
+  sed_extinction.py  extinction laws
+  _cc_ext.py         loader for the compiled extension
 
-fortran/
-  public/colors_def.f90
-  private/{colors_utils,hermite_interp,linear_interp,
-           hermite_interp_bounded,synthetic,bolometric}.f90
-  cc_api.f90
-
-demos/
+fortran/             kernels, built into sed_model.cc_api (see docs/fortran.md)
+demos/               example scripts, embedded in the documentation
+docs/                MkDocs sources
 tests/
-Makefile
-meson.build
-pyproject.toml
-meson.build
-meson_options.txt
-tools/
+tools/               build helpers used by CI
+Makefile             quick in-place extension build
+meson.build, meson_options.txt, pyproject.toml
 ```
+
+---
+
+## Citing
+
+If you use SED_Model in published work, please cite it using [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this repository" button reads it).
+
+---
+
+## Credits
+
+* The Fortran kernels (interpolation, integration, zero-points, bolometric quantities) are ported from the `colors` module of [MESA](https://docs.mesastar.org/), and SED_Model is tested against it. They keep MESA's licence (LGPL-3.0-or-later).
+* [SED_Tools](https://github.com/nialljmiller/SED_Tools) produces the atmosphere grids and filter files SED_Model reads.
+* Sampling is done with [emcee](https://emcee.readthedocs.io/) (Foreman-Mackey et al. 2013, PASP 125, 306).
+* The extinction laws are re-implemented from the original papers: Cardelli, Clayton & Mathis (1989), O'Donnell (1994), Fitzpatrick (1999), Fitzpatrick & Massa (2007), Calzetti et al. (2000) and Gordon et al. (2023). Full references are in the [Extinction guide](https://nialljmiller.github.io/SED_Model/guide/extinction/).
+* The forward model was cross-checked against [MSG](https://github.com/rhdtownsend/msg) and the MIST bolometric-correction tables (Choi et al. 2016, ApJ 823, 102; Dotter 2016, ApJS 222, 8).
 
 ---
 

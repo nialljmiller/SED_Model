@@ -11,7 +11,7 @@ OUTDIR  := sed_model
 # the numpy<2.0 pinned below) cannot wrap a module that only
 # re-exports procedures from other modules. cc_api.f90 uses the
 # private kernels directly instead -- see fortran/cc_api.f90 and
-# fortran/public/colors_lib.f90 headers, and MIGRATION.md.
+# fortran/public/colors_lib.f90 headers, and docs/fortran.md.
 SOURCES := \
 	fortran/public/colors_def.f90 \
 	fortran/private/colors_utils.f90 \
