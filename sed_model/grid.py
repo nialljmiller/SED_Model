@@ -113,8 +113,10 @@ class AtmosphereGrid:
         """Boolean (n_T, n_L, n_M) cube, True where a node holds a spectrum."""
         return self.flux.max(axis=3) > 0.0
 
-    def cell_has_empty_nodes(self, teff: float, logg: float, meta: float) -> bool:
-        """True if the cell containing the query has a corner with no model.
+    def cell_has_empty_nodes(
+        self, teff: float, logg: float, meta: float, stencil: bool = False
+    ) -> bool:
+        """True if the cell containing the query touches a node with no model.
 
         The cell is the one MESA's interpolators use (out-of-range queries
         take the boundary cell, dummy and single-point axes collapse).  A
@@ -122,15 +124,23 @@ class AtmosphereGrid:
         sitting exactly on a populated node is never reported.  Corners that
         hold no spectrum are all-zero in the cube, and interpolating through
         them gives unreliable fluxes.
+
+        With ``stencil=True`` the check also covers the nodes the Hermite
+        derivative estimates read: each corner's axis-aligned neighbours, i.e.
+        one extra node on either side of the cell along each axis.  Those
+        feed the cubic and an empty one makes it overshoot even when all
+        eight corners are populated.  Linear interpolation does not use them.
         """
-        sel = []
+        sel, live = [], []
         for axis, val in ((self.teff_grid, teff), (self.logg_grid, logg),
                           (self.meta_grid, meta)):
             n = len(axis)
             if n < 2 or np.all(axis == 0.0) or np.all(axis == 999.0) \
                     or np.all(axis == -999.0):
                 sel.append([0])
+                live.append(0)
                 continue
+            live.append(n)
             if val <= axis[0]:
                 sel.append([0])
             elif val >= axis[-1]:
@@ -138,7 +148,19 @@ class AtmosphereGrid:
             else:
                 i = int(np.searchsorted(axis, val, side="right")) - 1
                 sel.append([i] if axis[i] == val else [i, i + 1])
-        return not bool(self._node_has_model[np.ix_(*sel)].all())
+        has = self._node_has_model
+        if not has[np.ix_(*sel)].all():
+            return True
+        if not stencil:
+            return False
+        for ax, idx in enumerate(sel):
+            for nb in (idx[0] - 1, idx[-1] + 1):
+                if live[ax] and 0 <= nb < live[ax]:
+                    ext = list(sel)
+                    ext[ax] = [nb]
+                    if not has[np.ix_(*ext)].all():
+                        return True
+        return False
 
     def nearest_grid_distance(
         self, teff: float, logg: float, meta: float

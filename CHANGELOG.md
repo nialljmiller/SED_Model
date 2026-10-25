@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.2] — 2026-10-25
+
+- **The empty-node warning now covers the Hermite stencil.** With
+  `interp_method='hermite'` or `'hermite_bounded'`, `run_forward` also warns
+  when a node the derivative estimates read is empty: each corner's
+  axis-aligned neighbours, one extra node either side of the cell along every
+  axis. In the MSG/MIST re-test about one in six cells whose eight corners
+  are all populated had such a gap, and Hermite there is off by several
+  percent in bolometric flux (up to ~0.08 mag in photometry) with no warning.
+  `AtmosphereGrid.cell_has_empty_nodes(..., stencil=True)` exposes the check.
+  The warning is advisory: the interpolated values are returned unchanged
+  (including the large unphysical magnitudes of a cell with an empty corner).
+  `interp_method='linear'` is not affected.
+
 ## [0.4.1] — 2026-10-25
 
 - **Filter detector type.** `load_filters` reads `DetectorType=photon|energy`
