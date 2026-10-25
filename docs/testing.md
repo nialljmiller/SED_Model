@@ -48,7 +48,7 @@ Before 0.4.0 the forward model was swept against the MESA `colors` module, MSG a
 
 Things that matter when comparing with other work:
 
-- **Weighting.** `synthetic_magnitude` counts photons, as MESA does. Energy weighting would change Gaia G by up to 0.25 mag for cool stars, so curves defined for energy-counting detectors (e.g. Bessell UBVRI) are weighted differently from what SED_Model currently does; support for per-filter detector type is pending.
+- **Weighting.** `synthetic_magnitude` counts photons, as MESA does. Energy weighting would change Gaia G by up to 0.25 mag for cool stars, for curves defined for energy-counting detectors (e.g. Bessell UBVRI). From 0.4.1 filters tagged `DetectorType=energy` are converted accordingly; see [Grids and Filters](guide/grids-and-filters.md#detector-type).
 - **Filter definition.** The shipped `Generic/Johnson` curves are coarse and differ from Bessell/Cousins by up to 0.2 mag in R and I for cool stars.
 - **2MASS Vega zero points** follow Blanton and Roweis, about 0.025 mag from MIST's Cohen-based values.
 - **Empty grid cells.** A rectangular grid cube can contain nodes with no model (for Kurucz2003all about 40% of the cube). `run_forward` emits a `UserWarning` when the query's cell touches one, and the result there is unreliable. Hermite interpolation next to empty nodes can overshoot by 0.02-0.09 mag; this is MESA's behaviour and is reproduced exactly.

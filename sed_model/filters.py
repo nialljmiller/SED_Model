@@ -4,7 +4,22 @@ sed_model.filters
 Loads photometric filter transmission curves from SED_Tools-prepared
 ``.dat`` files and precomputes Vega, AB, and ST zero-points using the
 same integrals as the MESA colors module (colors/private/synthetic.f90):
-photon counting (weight by wavelength), as MESA does by default.
+photon counting (weight by wavelength), as MESA does.
+
+Detector type
+-------------
+SED_Tools tags each filter file with the response convention of its curve,
+``DetectorType=photon`` or ``energy``, as a ``;``-separated field after the
+second comma of the column-name row::
+
+    Wavelength,Transmission,FilterID=GAIA/GAIA3.G;DetectorType=photon;...
+
+Only the column row is read.  An energy-counting curve T_E is
+converted to its photon-counting equivalent T_E/λ (Bessell & Murphy 2012,
+eq. A9), rescaled to keep its peak, so that the λ-weighted band integrals below
+equal ∫F T_E / ∫T_E.  This is what the MESA colors module does.  A missing or
+unrecognised tag means photon counting.  A ``WavelengthUnit`` tag other than
+Angstrom converts the file's wavelength column to Angstrom.
 
 Zero-point definitions
 -----------------------
@@ -21,8 +36,11 @@ kept for environments where the extension has not yet been built.
 
 from __future__ import annotations
 
+import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import unquote
 
 import numpy as np
 
@@ -64,10 +82,14 @@ class Filter:
     st_zero_point : float
         Photon-counting flux zero-point for the ST magnitude system.
     photon_counting : bool
-        ``True`` (default) weights the band integrals by wavelength
-        (photon-counting detector).  Zero-points and magnitudes both follow
-        this flag, as in MESA's ``load_filter``.  Loaders always set it
-        ``True`` for now.
+        ``True`` when the band integrals are weighted by wavelength.  Always
+        ``True`` for loaded filters: energy-counting curves are converted to
+        their photon-counting equivalent when loaded (see ``detector_type``).
+    detector_type : str
+        ``'photon'`` or ``'energy'``: the response convention the file's curve
+        was tagged with.  For ``'energy'`` the ``transmission`` array holds the
+        converted curve T_E/λ (rescaled to the original peak), not the file's
+        values.
     """
     name:            str
     path:            Path
@@ -77,6 +99,7 @@ class Filter:
     ab_zero_point:   float = field(default=-1.0)
     st_zero_point:   float = field(default=-1.0)
     photon_counting: bool  = field(default=True)
+    detector_type:   str   = field(default="photon")
 
     def zero_point(self, system: str) -> float:
         """Return the zero-point for *system*.
@@ -124,7 +147,8 @@ def load_filters(
     filter_paths:
         Paths to individual ``*.dat`` filter transmission files in the
         SED_Tools two-column format (wavelength Å, transmission 0–1).
-        Comments starting with ``#`` are skipped.
+        Comments starting with ``#`` are skipped.  A ``DetectorType`` tag
+        (see the module docstring) selects photon or energy convention.
     vega_sed_path:
         Optional path to a Vega reference SED CSV file
         (``wavelength,flux`` header, wavelength in Å,
@@ -142,6 +166,11 @@ def load_filters(
     for p in filter_paths:
         p = Path(p).resolve()
         wave, trans = _load_filter_dat(p)
+        header = _read_filter_header(p)
+        wave = wave * _wavelength_factor(header, p)
+        detector = _detector_type(header, p)
+        if detector == "energy":
+            trans = _energy_to_photon_response(wave, trans)
         pc = True
         filt = Filter(
             name=p.stem,
@@ -149,6 +178,7 @@ def load_filters(
             wavelengths=wave,
             transmission=trans,
             photon_counting=pc,
+            detector_type=detector,
         )
         filt.ab_zero_point = _compute_ab_zero_point(wave, trans, pc)
         filt.st_zero_point = _compute_st_zero_point(wave, trans, pc)
@@ -221,6 +251,80 @@ def _sniff_delimiter(path: Path) -> str:
                 continue
             return "," if "," in line else None
     return None
+
+
+_ROW_FIELD_RE = re.compile(r"(?:^|[;,])([A-Za-z][A-Za-z0-9_]*)=([^;, \r\n]*)")
+
+# Same table as SED_Tools (flux_cube_tool.UNIT_TO_ANGSTROM).
+_UNIT_TO_ANGSTROM = {
+    "angstrom": 1.0, "angstroms": 1.0, "å": 1.0, "ang": 1.0, "a": 1.0, "aa": 1.0,
+    "nanometer": 10.0, "nanometre": 10.0, "nm": 10.0,
+    "micrometer": 1.0e4, "micrometre": 1.0e4, "micron": 1.0e4, "microns": 1.0e4,
+    "µm": 1.0e4, "μm": 1.0e4, "um": 1.0e4,
+    "millimeter": 1.0e7, "millimetre": 1.0e7, "mm": 1.0e7,
+    "meter": 1.0e10, "metre": 1.0e10, "m": 1.0e10,
+}
+
+
+def _read_filter_header(path: Path) -> dict[str, str]:
+    """SED_Tools metadata of a filter file as ``{key: value}``.
+
+    Fields come from the column-name row (``Wavelength,Transmission,Key=value;
+    ...``), values percent-decoded.  A file without a column row, or with a bare
+    ``Wavelength,Transmission`` row, has none.
+    """
+    with open(path, encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            text = line.strip()
+            if not text or text.startswith("#"):
+                continue
+            parts = text.replace(",", " ").split()
+            try:
+                float(parts[0]), float(parts[1])
+            except (IndexError, ValueError):   # the column-name row
+                return {k: unquote(v) for k, v in _ROW_FIELD_RE.findall(text)}
+            return {}
+    return {}
+
+
+def _detector_type(header: dict[str, str], path: Path) -> str:
+    """``'photon'`` or ``'energy'`` from the ``DetectorType`` field (default
+    ``'photon'``).  An unrecognised value means photon counting, with a
+    warning, as in the MESA colors ``load_filter``."""
+    value = header.get("DetectorType")
+    if value is None:
+        return "photon"
+    value = value.strip().lower()
+    if value not in ("photon", "energy"):
+        warnings.warn(
+            f"{path}: unknown DetectorType {value!r}; assuming photon.",
+            UserWarning, stacklevel=3)
+        return "photon"
+    return value
+
+
+def _wavelength_factor(header: dict[str, str], path: Path) -> float:
+    """Factor converting the file's wavelength column to Angstrom, from its
+    ``WavelengthUnit`` field (1.0 when absent: files are Angstrom)."""
+    unit = header.get("WavelengthUnit")
+    if not unit:
+        return 1.0
+    try:
+        return _UNIT_TO_ANGSTROM[unit.strip().lower()]
+    except KeyError:
+        raise ValueError(
+            f"{path}: unrecognised WavelengthUnit {unit!r}; known units: "
+            + ", ".join(sorted(_UNIT_TO_ANGSTROM))) from None
+
+
+def _energy_to_photon_response(wave: np.ndarray, trans: np.ndarray) -> np.ndarray:
+    """Photon-counting equivalent of an energy-counting curve: T_E/λ, rescaled
+    so the peak transmission is unchanged (the normalisation cancels in every
+    ratio that uses the curve)."""
+    peak = trans.max()
+    out = np.where(wave > 0.0, trans / np.where(wave > 0.0, wave, 1.0), trans)
+    top = out.max()
+    return out * (peak / top) if top > 0.0 else out
 
 
 def _load_filter_dat(path: Path) -> tuple[np.ndarray, np.ndarray]:
