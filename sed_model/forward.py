@@ -208,17 +208,19 @@ def run_forward(
     grid_dist = grid.nearest_grid_distance(teff, logg, meta)
     teff_q, logg_q, meta_q = grid.clamp(teff, logg, meta)
 
-    if grid.cell_has_empty_nodes(teff_q, logg_q, meta_q):
+    method = interp_method.lower()
+    hermite = method in ("hermite", "hermite_bounded")
+    if grid.cell_has_empty_nodes(teff_q, logg_q, meta_q, stencil=hermite):
         warnings.warn(
             f"Teff={teff_q:.1f}, logg={logg_q:.3f}, [M/H]={meta_q:.3f} lies in a "
-            "grid cell with empty nodes (no model at one or more corners); the "
-            "interpolated SED and magnitudes are unreliable there.",
+            "grid cell with empty nodes (no model at a corner"
+            + (" or in the Hermite stencil around it" if hermite else "")
+            + "); the interpolated SED and magnitudes are unreliable there.",
             UserWarning, stacklevel=2,
         )
 
     # grid.flux_fortran is pre-computed at load time — zero-copy to Fortran.
     # The axis arrays are already float64 C-contiguous from load_grid.
-    method = interp_method.lower()
     if method == "hermite_bounded":
         surface_flux, ierr = cc.interp_sed_hermite_bounded(
             teff_q, logg_q, meta_q,

@@ -349,6 +349,33 @@ def test_cell_has_empty_nodes():
     assert not g.cell_has_empty_nodes(1000.0, 0.0, 0.0)
 
 
+def test_stencil_empty_nodes_only_for_hermite():
+    """All 8 corners populated, but the Hermite derivative of a corner reads
+    the empty node one step further along an axis."""
+    g = _hole_grid()
+    assert not g.cell_has_empty_nodes(4500.0, 2.5, 0.0)
+    assert g.cell_has_empty_nodes(4500.0, 2.5, 0.0, stencil=True)
+    # the diagonal neighbour is not read, and a clean cell stays clean
+    assert not g.cell_has_empty_nodes(4500.0, 1.5, 0.0, stencil=True)
+    # a populated node still never warns when the stencil is not touched
+    assert not g.cell_has_empty_nodes(4000.0, 1.0, 0.0, stencil=True)
+
+
+def test_run_forward_warns_for_hermite_stencil_hole():
+    import warnings
+    from sed_model import run_forward
+
+    g = _hole_grid()
+    kw = dict(R=6.957e10, d=3.0857e19, grid=g, filters=[],
+              teff=4500.0, logg=2.5, meta=0.0)
+    for method in ("hermite", "hermite_bounded"):
+        with pytest.warns(UserWarning, match="Hermite stencil"):
+            run_forward(interp_method=method, **kw)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        run_forward(interp_method="linear", **kw)
+
+
 def test_run_forward_warns_in_empty_cell():
     from sed_model import run_forward
 
