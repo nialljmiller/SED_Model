@@ -2,7 +2,7 @@
 # and for the others the checks below give a readable error if one is missing.
 project(
   'sed_model',
-  version: '0.3.2',
+  version: '0.4.0',
   meson_version: '>=1.1.0',
 )
 
@@ -34,6 +34,7 @@ if components in ['all', 'python']
     files(
       'sed_model/__init__.py',
       'sed_model/_cc_ext.py',
+      'sed_model/_inv_core.py',
       'sed_model/filters.py',
       'sed_model/forward.py',
       'sed_model/grid.py',

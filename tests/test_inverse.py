@@ -393,3 +393,177 @@ class TestInverseValidation:
                 n_walkers=8, n_steps=10, n_burn=2,
                 progress=False,
             )
+
+
+# ---------------------------------------------------------------------------
+# Post-0.3.1 inverse improvements: fast model, global init, systematics,
+# priors, upper limits, diagnostics
+# ---------------------------------------------------------------------------
+
+def _mags(grid, filters, teff, logg, meta, d=D_10PC, av=0.0):
+    from sed_model import run_forward, make_extinction_model
+    ext = make_extinction_model(enabled=True, law="fitzpatrick99", a_v=av) if av else None
+    r = run_forward(teff=teff, logg=logg, meta=meta, R=R_SUN, d=d, grid=grid,
+                    filters=filters, mag_system="AB", extinction=ext)
+    names = [f.name for f in filters]
+    return names, np.array([r.magnitudes[n] for n in names])
+
+
+@requires_fortran
+@requires_grid
+@requires_filters
+class TestInverseCore:
+
+    def test_fast_model_matches_run_forward(self, grid, filters):
+        from sed_model import make_extinction_model
+        from sed_model._inv_core import _FastModel
+        ext = make_extinction_model(enabled=True, law="fitzpatrick99", a_v=0.0)
+        names = [f.name for f in filters]
+        fm = _FastModel(grid, filters, names, R_SUN, "AB", "hermite_bounded", ext)
+        for (t, l, m, av) in [(5800.0, 4.4, 0.0, 0.0), (7123.0, 3.7, -0.8, 1.3), (3650.0, 4.9, 0.45, 0.4)]:
+            _, ref = _mags(grid, filters, t, l, m, av=av)
+            np.testing.assert_allclose(fm.mags(t, l, m, av, D_10PC), ref, atol=1e-9, rtol=0)
+
+    def test_grid_holes_are_unsupported(self, grid, filters):
+        from sed_model._inv_core import _FastModel
+        fm = _FastModel(grid, filters, [filters[0].name], R_SUN, "AB", "hermite_bounded", None)
+        assert fm.supported(5800.0, 4.4, 0.0)
+        # hot + low gravity corner of the Kurucz grid is an all-zero SED
+        assert not fm.supported(40000.0, 1.0, 0.0)
+
+    def test_auto_init_recovers_hot_star_from_far_away(self, grid, filters):
+        """The legacy mid-box ball starts at ~27000 K; the global search must not care."""
+        from sed_model import run_inverse
+        names, m = _mags(grid, filters, 9500.0, 4.2, -0.4)
+        res = run_inverse(m, np.full(m.size, 0.02), names, R=R_SUN, d=D_10PC,
+                          grid=grid, filters=filters, n_walkers=16, n_steps=400,
+                          n_burn=100, progress=False, verbose=False, seed=3)
+        s = res.summary()
+        assert abs(s["teff"]["median"] - 9500.0) < 400.0
+        assert res.init_info["method"] == "global-search+LM"
+        assert res.converged is not None and res.n_eff is not None
+        assert res.chi2_best is not None and res.n_data == m.size
+
+    def test_legacy_ball_path_still_works(self, grid, filters):
+        from sed_model import run_inverse
+        names, m = _mags(grid, filters, 5800.0, 4.4, 0.0)
+        res = run_inverse(m, np.full(m.size, 0.02), names, R=R_SUN, d=D_10PC,
+                          grid=grid, filters=filters, n_walkers=16, n_steps=200,
+                          n_burn=50, progress=False, verbose=False, seed=1,
+                          init="ball", p0_centre={"teff": 5800.0, "logg": 4.4, "meta": 0.0})
+        assert res.init_info["method"] == "ball"
+
+    def test_nan_band_is_dropped_with_warning(self, grid, filters):
+        from sed_model import run_inverse
+        names, m = _mags(grid, filters, 5800.0, 4.4, 0.0)
+        m = m.copy()
+        m[2] = np.nan
+        with pytest.warns(UserWarning, match="non-finite"):
+            res = run_inverse(m, np.full(m.size, 0.02), names, R=R_SUN, d=D_10PC,
+                              grid=grid, filters=filters, n_walkers=16, n_steps=100,
+                              n_burn=20, progress=False, verbose=False, seed=1)
+        assert len(res.filter_names) == len(names) - 1
+
+    def test_fit_jitter_adds_parameter(self, grid, filters):
+        from sed_model import run_inverse
+        names, m = _mags(grid, filters, 5800.0, 4.4, 0.0)
+        res = run_inverse(m, np.full(m.size, 0.01), names, R=R_SUN, d=D_10PC,
+                          grid=grid, filters=filters, n_walkers=16, n_steps=150,
+                          n_burn=50, progress=False, verbose=False, seed=1,
+                          fit_jitter=True, jitter_max=0.1)
+        assert res.param_names == ["teff", "logg", "meta", "sigma_sys"]
+        assert res.samples.shape[1] == 4
+        assert np.all((res.samples[:, 3] >= 0) & (res.samples[:, 3] <= 0.1))
+
+    def test_sys_floor_and_upper_limit_likelihood(self, grid, filters):
+        from sed_model import fit_params_from_grid
+        from sed_model._inv_core import _FastModel, _Problem
+        names, m = _mags(grid, filters, 5800.0, 4.4, 0.0)
+        fp = fit_params_from_grid(grid, d_cm=D_10PC)
+        fm = _FastModel(grid, filters, names, R_SUN, "AB", "hermite_bounded", None)
+        th = np.array([5800.0, 4.4, 0.0])
+        obs = m + 0.1
+        p0 = _Problem(fm, fp, obs, np.full(m.size, 0.01))
+        p1 = _Problem(fm, fp, obs, np.full(m.size, 0.01), sys_floor=0.1)
+        assert p1.log_like(th) > p0.log_like(th)          # floor tolerates the offset
+        up = np.zeros(m.size, bool)
+        up[0] = True
+        # band 0 is a limit; the model is fainter than the limit (ok) or brighter (violated)
+        obs_ok, obs_bad = m.copy(), m.copy()
+        obs_ok[0] -= 0.5
+        obs_bad[0] += 0.5
+        ok = _Problem(fm, fp, obs_ok, np.full(m.size, 0.01), upper=up)
+        bad = _Problem(fm, fp, obs_bad, np.full(m.size, 0.01), upper=up)
+        assert ok.log_like(th) > bad.log_like(th) + 100.0
+
+    def test_prior_parsing(self):
+        from sed_model._inv_core import parse_priors
+        p = parse_priors({"d": ("parallax", 2.0, 0.1), "a_v": ("halfnormal", 0.5)}, ["teff", "a_v", "d"])
+        pc = 3.085677581491367e18
+        assert p["d"](500.0 * pc) == pytest.approx(0.0)       # parallax exactly 2 mas
+        assert p["d"](250.0 * pc) < -100.0
+        assert p["a_v"](0.0) > p["a_v"](1.0)
+        with pytest.raises(ValueError):
+            parse_priors({"logg": ("normal", 4.0, 0.1)}, ["teff"])
+
+    def test_parallax_prior_constrains_distance(self, grid, filters):
+        from sed_model import run_inverse, fit_params_from_grid
+        pc = 3.085677581491367e18
+        names, m = _mags(grid, filters, 5800.0, 4.4, 0.0, d=100 * pc)
+        fp = fit_params_from_grid(grid, teff=(5000, 6500), logg=(3.5, 5.0), meta=(-1.0, 0.5),
+                                  d_cm=(20 * pc, 500 * pc))
+        res = run_inverse(m, np.full(m.size, 0.02), names, R=R_SUN, grid=grid, filters=filters,
+                          fit_params=fp, n_walkers=16, n_steps=400, n_burn=150,
+                          progress=False, verbose=False, seed=2,
+                          priors={"d": ("parallax", 10.0, 0.2)})
+        dmed = np.median(res.samples[:, 3]) / pc
+        assert abs(dmed - 100.0) < 5.0
+
+    def test_auto_stop_and_auto_burn(self, grid, filters):
+        from sed_model import run_inverse
+        names, m = _mags(grid, filters, 5800.0, 4.4, 0.0)
+        res = run_inverse(m, np.full(m.size, 0.02), names, R=R_SUN, d=D_10PC,
+                          grid=grid, filters=filters, n_walkers=16, n_steps=3000,
+                          n_burn=None, auto_stop=True, progress=False, verbose=False, seed=5)
+        assert res.n_steps <= 3000
+        assert 0 <= res.n_burn < res.n_steps
+
+    def test_result_roundtrip_new_fields(self, grid, filters):
+        from sed_model import run_inverse, InverseResult
+        names, m = _mags(grid, filters, 5800.0, 4.4, 0.0)
+        res = run_inverse(m, np.full(m.size, 0.02), names, R=R_SUN, d=D_10PC,
+                          grid=grid, filters=filters, n_walkers=16, n_steps=120,
+                          n_burn=30, progress=False, verbose=False, seed=5)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "r.npz")
+            res.save(path)
+            back = InverseResult.load(path)
+        assert back.converged == res.converged
+        assert back.chi2_best == pytest.approx(res.chi2_best)
+        assert back.n_data == res.n_data
+        np.testing.assert_allclose(back.n_eff, res.n_eff)
+        assert back.init_info["method"] == res.init_info["method"]
+
+    def test_truth_on_prior_bounds_does_not_break_sampler(self, grid, filters):
+        """Truth pinned to a grid corner: init walkers must be distinct and finite
+        (identical walkers make differential-evolution proposals NaN)."""
+        from sed_model import run_inverse
+        names, m = _mags(grid, filters, 3600.0, 5.0, 0.5)
+        res = run_inverse(m, np.full(m.size, 0.005), names, R=R_SUN, d=D_10PC,
+                          grid=grid, filters=filters, n_walkers=16, n_steps=200,
+                          n_burn=50, progress=False, verbose=False, seed=11)
+        assert np.all(np.isfinite(res.samples)) and np.all(np.isfinite(res.log_prob))
+        assert np.median(res.samples[:, 1]) > 4.0
+
+    def test_multimodal_init_distinct_walkers(self, grid, filters):
+        from sed_model import fit_params_from_grid
+        from sed_model._inv_core import _FastModel, _Problem, initial_walkers
+        names, m = _mags(grid, filters, 6000.0, 4.5, -0.3)
+        fp = fit_params_from_grid(grid, d_cm=D_10PC)
+        fm = _FastModel(grid, filters, names, R_SUN, "AB", "hermite_bounded", None)
+        pr = _Problem(fm, fp, m, np.full(m.size, 0.02))
+        p0, info = initial_walkers(pr, 16, np.random.default_rng(0))
+        assert p0.shape == (16, 3)
+        assert len({tuple(r) for r in p0}) == 16          # no duplicate walkers
+        assert np.all(np.isfinite([pr(t) for t in p0]))
+        assert info["n_modes"] >= 1 and sum(info["mode_walkers"]) == 16

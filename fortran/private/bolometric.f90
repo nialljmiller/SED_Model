@@ -22,7 +22,7 @@
 ! ***********************************************************************
 
 module bolometric
-   use colors_def, only: dp, BAD_MAG, F_BOL_ZERO_POINT
+   use colors_def, only: dp, BOL_MAG_NONPOSITIVE_FLUX, F_BOL_ZERO_POINT
    use colors_utils, only: simpson_integration, is_finite
    implicit none
 
@@ -75,7 +75,7 @@ contains
       if (bol_flux > 0.0_dp) then
          bol_mag = -2.5_dp * log10(bol_flux / F_BOL_ZERO_POINT)
       else
-         bol_mag = BAD_MAG
+         bol_mag = BOL_MAG_NONPOSITIVE_FLUX
          ierr = 1
       end if
    end subroutine bolometric_magnitude

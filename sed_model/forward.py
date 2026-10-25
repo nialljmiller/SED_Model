@@ -40,6 +40,7 @@ keyword argument.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING
 
@@ -207,6 +208,14 @@ def run_forward(
     grid_dist = grid.nearest_grid_distance(teff, logg, meta)
     teff_q, logg_q, meta_q = grid.clamp(teff, logg, meta)
 
+    if grid.cell_has_empty_nodes(teff_q, logg_q, meta_q):
+        warnings.warn(
+            f"Teff={teff_q:.1f}, logg={logg_q:.3f}, [M/H]={meta_q:.3f} lies in a "
+            "grid cell with empty nodes (no model at one or more corners); the "
+            "interpolated SED and magnitudes are unreliable there.",
+            UserWarning, stacklevel=2,
+        )
+
     # grid.flux_fortran is pre-computed at load time — zero-copy to Fortran.
     # The axis arrays are already float64 C-contiguous from load_grid.
     method = interp_method.lower()
@@ -239,7 +248,10 @@ def run_forward(
             "Hermite and linear interpolation both returned an invalid SED "
             f"at Teff={teff:.1f}, logg={logg:.3f}, [M/H]={meta:.3f}."
         )
-    if ierr != 0 and method != "hermite_bounded":
+    # Hermite ierr=1 is a boundary clamp.  Linear ierr=1 only records that some
+    # wavelength bins fell back to the nearest node, which says nothing about
+    # the query; only ierr=2 (no usable flux at all) is flagged.
+    if (method == "hermite" and ierr != 0) or (method == "linear" and ierr == 2):
         clamped = True
 
     # ------------------------------------------------------------------
@@ -284,6 +296,7 @@ def run_forward(
             grid.wavelengths, observed_flux,
             filt.wavelengths, filt.transmission,
             zp,
+            photon_counting=int(filt.photon_counting),
         )
         magnitudes[filt.name]  = float(mag) if mag_ierr == 0 else float('nan')
         band_fluxes[filt.name] = float(band_flux)

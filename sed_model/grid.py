@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 
@@ -51,6 +53,12 @@ class AtmosphereGrid:
         Pre-computed at load time so the hot path avoids repeated copies.
     model_dir : Path
         Directory from which the grid was loaded.
+    lookup_nodes : ndarray, shape (N, 3), optional
+        (Teff, logg, [M/H]) of the tabulated models, i.e. the cube nodes
+        that hold a spectrum.  MESA's ``Interp_rad`` is measured to the
+        entries of ``lookup_table.csv``, which lists exactly these models
+        (a rectangular cube also has empty nodes where no model exists).
+        Computed from ``flux`` when not supplied.
     """
     teff_grid:    np.ndarray
     logg_grid:    np.ndarray
@@ -59,6 +67,7 @@ class AtmosphereGrid:
     flux:         np.ndarray
     flux_fortran: np.ndarray
     model_dir:    Path
+    lookup_nodes: Optional[np.ndarray] = None
 
     # ------------------------------------------------------------------
     # Convenience
@@ -93,25 +102,67 @@ class AtmosphereGrid:
         meta = float(np.clip(meta, *self.meta_bounds))
         return teff, logg, meta
 
+    def _tabulated_nodes(self) -> np.ndarray:
+        """(N, 3) array of (Teff, logg, [M/H]) of the nodes holding a model."""
+        if self.lookup_nodes is not None:
+            return self.lookup_nodes
+        return _tabulated_nodes(self.teff_grid, self.logg_grid, self.meta_grid, self.flux)
+
+    @cached_property
+    def _node_has_model(self) -> np.ndarray:
+        """Boolean (n_T, n_L, n_M) cube, True where a node holds a spectrum."""
+        return self.flux.max(axis=3) > 0.0
+
+    def cell_has_empty_nodes(self, teff: float, logg: float, meta: float) -> bool:
+        """True if the cell containing the query has a corner with no model.
+
+        The cell is the one MESA's interpolators use (out-of-range queries
+        take the boundary cell, dummy and single-point axes collapse).  A
+        corner counts only if it carries interpolation weight, so a query
+        sitting exactly on a populated node is never reported.  Corners that
+        hold no spectrum are all-zero in the cube, and interpolating through
+        them gives unreliable fluxes.
+        """
+        sel = []
+        for axis, val in ((self.teff_grid, teff), (self.logg_grid, logg),
+                          (self.meta_grid, meta)):
+            n = len(axis)
+            if n < 2 or np.all(axis == 0.0) or np.all(axis == 999.0) \
+                    or np.all(axis == -999.0):
+                sel.append([0])
+                continue
+            if val <= axis[0]:
+                sel.append([0])
+            elif val >= axis[-1]:
+                sel.append([n - 1])
+            else:
+                i = int(np.searchsorted(axis, val, side="right")) - 1
+                sel.append([i] if axis[i] == val else [i, i + 1])
+        return not bool(self._node_has_model[np.ix_(*sel)].all())
+
     def nearest_grid_distance(
         self, teff: float, logg: float, meta: float
     ) -> float:
-        """Euclidean distance in normalised parameter space from the nearest
-        grid point.  Mirrors the ``Interp_rad`` diagnostic produced by the
-        MESA colors module."""
-        t_norm = (self.teff_grid[-1] - self.teff_grid[0]) or 1.0
-        l_norm = (self.logg_grid[-1] - self.logg_grid[0]) or 1.0
-        m_norm = (self.meta_grid[-1] - self.meta_grid[0]) or 1.0
+        """Distance in normalised parameter space from the nearest tabulated
+        model; identical to the ``Interp_rad`` diagnostic of the MESA colors
+        module (``compute_interp_radius`` in colors/private/bolometric.f90).
 
-        i_t = int(np.argmin(np.abs(self.teff_grid - teff)))
-        i_l = int(np.argmin(np.abs(self.logg_grid - logg)))
-        i_m = int(np.argmin(np.abs(self.meta_grid - meta)))
-
-        dt = (teff - self.teff_grid[i_t]) / t_norm
-        dl = (logg - self.logg_grid[i_l]) / l_norm
-        dm = (meta - self.meta_grid[i_m]) / m_norm
-
-        return float(np.sqrt(dt**2 + dl**2 + dm**2))
+        Each axis is normalised by the range spanned by the tabulated models
+        (floored at 1e-12), and an axis on which every model has the value 0,
+        999 or -999 (i.e. the axis does not exist for this grid) is ignored.
+        The query is not clamped to the grid.
+        """
+        nodes = self._tabulated_nodes()
+        q = (teff, logg, meta)
+        total = np.zeros(len(nodes))
+        for k in range(3):
+            col = nodes[:, k]
+            if np.all(col == 0.0) or np.all(col == 999.0) or np.all(col == -999.0):
+                continue
+            lo = col.min()
+            rng = max(col.max() - lo, 1.0e-12)
+            total += ((q[k] - lo) / rng - (col - lo) / rng) ** 2
+        return float(np.sqrt(total.min()))
 
     def __repr__(self) -> str:
         return (
@@ -170,7 +221,16 @@ def load_grid(model_dir: str | Path) -> AtmosphereGrid:
         flux=flux,
         flux_fortran=np.asfortranarray(flux, dtype=np.float64),
         model_dir=model_dir,
+        lookup_nodes=_tabulated_nodes(teff_grid, logg_grid, meta_grid, flux),
     )
+
+
+def _tabulated_nodes(teff_grid, logg_grid, meta_grid, flux) -> np.ndarray:
+    """Coordinates of the cube nodes that carry a spectrum (flux > 0 somewhere)."""
+    idx = np.argwhere(flux.max(axis=3) > 0.0)
+    if len(idx) == 0:
+        idx = np.argwhere(np.ones(flux.shape[:3], dtype=bool))
+    return np.column_stack((teff_grid[idx[:, 0]], logg_grid[idx[:, 1]], meta_grid[idx[:, 2]]))
 
 
 # ---------------------------------------------------------------------------

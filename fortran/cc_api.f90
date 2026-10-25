@@ -190,7 +190,9 @@ contains
    !
    ! Steps performed internally:
    !   1. Interpolate filter transmission onto the SED wavelength grid
-   !   2. Photon-counting in-band flux integration
+   !   2. In-band flux integration (photon counting by default; energy
+   !      counting when photon_counting = 0, for filters tagged
+   !      '# DetectorType: energy' -- see sed_model.filters)
    !   3. m = -2.5 log10(F_band / F_zp)
    !
    ! Parameters
@@ -200,6 +202,7 @@ contains
    ! filt_wave(nf)       : filter wavelength grid (A)
    ! filt_trans(nf)      : filter transmission [0,1]
    ! zero_point          : precomputed photometric zero-point
+   ! photon_counting     : optional, 1 (default) photon / 0 energy weighting
    ! mag                 : output magnitude
    ! band_flux           : output in-band flux (before zero-point)
    ! ierr                : 0=ok, 1=integration failure, 2=non-positive flux
@@ -207,11 +210,13 @@ contains
    subroutine synthetic_magnitude(sed_wave, obs_flux, nw, &
                                    filt_wave, filt_trans, nf, &
                                    zero_point, &
-                                   mag, band_flux, ierr)
+                                   mag, band_flux, ierr, photon_counting)
       !f2py intent(in)  :: sed_wave, obs_flux, nw
       !f2py intent(in)  :: filt_wave, filt_trans, nf
       !f2py intent(in)  :: zero_point
       !f2py intent(out) :: mag, band_flux, ierr
+      !f2py integer, intent(in) :: photon_counting = 1
+      integer,  intent(in)  :: photon_counting   ! 1 = photon counting (default), 0 = energy counting
       integer,  intent(in)  :: nw, nf
       real(dp), intent(in)  :: sed_wave(nw), obs_flux(nw)
       real(dp), intent(in)  :: filt_wave(nf), filt_trans(nf)
@@ -227,7 +232,7 @@ contains
          mag = BAD_MAG; band_flux = -1.0_dp; return
       end if
 
-      call lib_synthetic_flux(sed_wave, obs_flux * filt_on_sed, filt_on_sed, band_flux)
+      call lib_synthetic_flux(sed_wave, obs_flux * filt_on_sed, filt_on_sed, band_flux, photon_counting /= 0)
       if (band_flux <= 0.0_dp) then
          mag = BAD_MAG; ierr = 1; return
       end if
@@ -265,43 +270,49 @@ contains
 
    subroutine vega_zero_point(vega_wave, vega_flux, nv, &
                                filt_wave, filt_trans, nf, &
-                               zp, ierr)
+                               zp, ierr, photon_counting)
       !f2py intent(in)  :: vega_wave, vega_flux, nv
       !f2py intent(in)  :: filt_wave, filt_trans, nf
       !f2py intent(out) :: zp, ierr
+      !f2py integer, intent(in) :: photon_counting = 1
+      integer,  intent(in)  :: photon_counting
       integer,  intent(in)  :: nv, nf
       real(dp), intent(in)  :: vega_wave(nv), vega_flux(nv)
       real(dp), intent(in)  :: filt_wave(nf), filt_trans(nf)
       real(dp), intent(out) :: zp
       integer,  intent(out) :: ierr
 
-      zp = lib_vega_zp(vega_wave, vega_flux, filt_wave, filt_trans)
+      zp = lib_vega_zp(vega_wave, vega_flux, filt_wave, filt_trans, photon_counting /= 0)
       ierr = merge(0, 1, zp > 0.0_dp)
    end subroutine vega_zero_point
 
 
-   subroutine ab_zero_point(filt_wave, filt_trans, nf, zp, ierr)
+   subroutine ab_zero_point(filt_wave, filt_trans, nf, zp, ierr, photon_counting)
       !f2py intent(in)  :: filt_wave, filt_trans, nf
       !f2py intent(out) :: zp, ierr
+      !f2py integer, intent(in) :: photon_counting = 1
+      integer,  intent(in)  :: photon_counting
       integer,  intent(in)  :: nf
       real(dp), intent(in)  :: filt_wave(nf), filt_trans(nf)
       real(dp), intent(out) :: zp
       integer,  intent(out) :: ierr
 
-      zp = lib_ab_zp(filt_wave, filt_trans)
+      zp = lib_ab_zp(filt_wave, filt_trans, photon_counting /= 0)
       ierr = merge(0, 1, zp > 0.0_dp)
    end subroutine ab_zero_point
 
 
-   subroutine st_zero_point(filt_wave, filt_trans, nf, zp, ierr)
+   subroutine st_zero_point(filt_wave, filt_trans, nf, zp, ierr, photon_counting)
       !f2py intent(in)  :: filt_wave, filt_trans, nf
       !f2py intent(out) :: zp, ierr
+      !f2py integer, intent(in) :: photon_counting = 1
+      integer,  intent(in)  :: photon_counting
       integer,  intent(in)  :: nf
       real(dp), intent(in)  :: filt_wave(nf), filt_trans(nf)
       real(dp), intent(out) :: zp
       integer,  intent(out) :: ierr
 
-      zp = lib_st_zp(filt_wave, filt_trans)
+      zp = lib_st_zp(filt_wave, filt_trans, photon_counting /= 0)
       ierr = merge(0, 1, zp > 0.0_dp)
    end subroutine st_zero_point
 

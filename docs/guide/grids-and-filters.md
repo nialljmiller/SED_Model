@@ -56,7 +56,7 @@ Filter files are two-column (wavelength Å, transmission 0–1); `#` comments ar
 
 ### Zero-points
 
-Each `Filter` carries precomputed photon-counting zero-points using the same integrals as MESA `colors/private/synthetic.f90`:
+Each `Filter` carries precomputed zero-points using the same integrals as MESA `colors/private/synthetic.f90` (photon counting, as MESA does by default). The photon-counting forms are:
 
 | System | Definition |
 |---|---|

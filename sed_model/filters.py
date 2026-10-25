@@ -3,8 +3,8 @@ sed_model.filters
 ======================
 Loads photometric filter transmission curves from SED_Tools-prepared
 ``.dat`` files and precomputes Vega, AB, and ST zero-points using the
-same photon-counting integrals as the MESA colors module
-(colors/private/synthetic.f90).
+same integrals as the MESA colors module (colors/private/synthetic.f90):
+photon counting (weight by wavelength), as MESA does by default.
 
 Zero-point definitions
 -----------------------
@@ -63,6 +63,11 @@ class Filter:
         Photon-counting flux zero-point for the AB magnitude system.
     st_zero_point : float
         Photon-counting flux zero-point for the ST magnitude system.
+    photon_counting : bool
+        ``True`` (default) weights the band integrals by wavelength
+        (photon-counting detector).  Zero-points and magnitudes both follow
+        this flag, as in MESA's ``load_filter``.  Loaders always set it
+        ``True`` for now.
     """
     name:            str
     path:            Path
@@ -71,6 +76,7 @@ class Filter:
     vega_zero_point: float = field(default=-1.0)
     ab_zero_point:   float = field(default=-1.0)
     st_zero_point:   float = field(default=-1.0)
+    photon_counting: bool  = field(default=True)
 
     def zero_point(self, system: str) -> float:
         """Return the zero-point for *system*.
@@ -123,7 +129,6 @@ def load_filters(
         Optional path to a Vega reference SED CSV file
         (``wavelength,flux`` header, wavelength in Å,
         flux in erg/s/cm²/Å).  Required for Vega zero-points.
-
     Returns
     -------
     list of Filter, in the same order as *filter_paths*.
@@ -137,17 +142,19 @@ def load_filters(
     for p in filter_paths:
         p = Path(p).resolve()
         wave, trans = _load_filter_dat(p)
+        pc = True
         filt = Filter(
             name=p.stem,
             path=p,
             wavelengths=wave,
             transmission=trans,
+            photon_counting=pc,
         )
-        filt.ab_zero_point = _compute_ab_zero_point(wave, trans)
-        filt.st_zero_point = _compute_st_zero_point(wave, trans)
+        filt.ab_zero_point = _compute_ab_zero_point(wave, trans, pc)
+        filt.st_zero_point = _compute_st_zero_point(wave, trans, pc)
         if vega_wave is not None and vega_flux is not None:
             filt.vega_zero_point = _compute_vega_zero_point(
-                vega_wave, vega_flux, wave, trans
+                vega_wave, vega_flux, wave, trans, pc
             )
         filters.append(filt)
 
@@ -176,7 +183,6 @@ def load_filters_from_instrument_dir(
         Path to a ``data/filters/<Facility>/<Instrument>/`` directory.
     vega_sed_path:
         Optional Vega reference SED for Vega zero-point computation.
-
     Returns
     -------
     list of Filter
@@ -272,7 +278,8 @@ def _load_vega_sed(path: Path) -> tuple[np.ndarray, np.ndarray]:
 # Zero-point computation  (mirrors synthetic.f90)
 # ---------------------------------------------------------------------------
 
-def _run_fortran_zero_point(fortran_method: str, *arrays: np.ndarray) -> float | None:
+def _run_fortran_zero_point(fortran_method: str, *arrays: np.ndarray,
+                            photon_counting: bool = True) -> float | None:
     """Attempt a Fortran zero-point kernel call.
 
     Returns the zero-point as a float, or None if the extension is absent or
@@ -282,7 +289,7 @@ def _run_fortran_zero_point(fortran_method: str, *arrays: np.ndarray) -> float |
     if cc is None:
         return None
     prepared = [np.ascontiguousarray(a, dtype=np.float64) for a in arrays]
-    zp, ierr = getattr(cc, fortran_method)(*prepared)
+    zp, ierr = getattr(cc, fortran_method)(*prepared, photon_counting=int(photon_counting))
     return float(zp) if int(ierr) == 0 else None
 
 
@@ -290,47 +297,54 @@ def _trapezoid(x: np.ndarray, y: np.ndarray) -> float:
     return float(np.trapezoid(y, x))
 
 
+def _band_average(x: np.ndarray, num: np.ndarray, den: np.ndarray, photon_counting: bool) -> float:
+    if photon_counting:
+        num, den = num * x, den * x
+    d = _trapezoid(x, den)
+    return _trapezoid(x, num) / d if d > 0.0 else -1.0
+
+
 def _compute_vega_zero_point(
     vega_wave: np.ndarray,
     vega_flux: np.ndarray,
     filt_wave: np.ndarray,
     filt_trans: np.ndarray,
+    photon_counting: bool = True,
 ) -> float:
     result = _run_fortran_zero_point(
-        'vega_zero_point', vega_wave, vega_flux, filt_wave, filt_trans
+        'vega_zero_point', vega_wave, vega_flux, filt_wave, filt_trans,
+        photon_counting=photon_counting,
     )
     if result is not None:
         return result
 
     trans_on_vega = np.interp(vega_wave, filt_wave, filt_trans, left=0.0, right=0.0)
-    num = _trapezoid(vega_wave, vega_flux * trans_on_vega * vega_wave)
-    den = _trapezoid(vega_wave, trans_on_vega * vega_wave)
-    return num / den if den > 0.0 else -1.0
+    return _band_average(vega_wave, vega_flux * trans_on_vega, trans_on_vega, photon_counting)
 
 
 def _compute_ab_zero_point(
     filt_wave: np.ndarray,
     filt_trans: np.ndarray,
+    photon_counting: bool = True,
 ) -> float:
-    result = _run_fortran_zero_point('ab_zero_point', filt_wave, filt_trans)
+    result = _run_fortran_zero_point('ab_zero_point', filt_wave, filt_trans,
+                                     photon_counting=photon_counting)
     if result is not None:
         return result
 
     f_ab = _AB_FNU_ZP * (_CLIGHT_CM_S * 1e8) / (filt_wave ** 2)
-    num = _trapezoid(filt_wave, f_ab * filt_trans * filt_wave)
-    den = _trapezoid(filt_wave, filt_trans * filt_wave)
-    return num / den if den > 0.0 else -1.0
+    return _band_average(filt_wave, f_ab * filt_trans, filt_trans, photon_counting)
 
 
 def _compute_st_zero_point(
     filt_wave: np.ndarray,
     filt_trans: np.ndarray,
+    photon_counting: bool = True,
 ) -> float:
-    result = _run_fortran_zero_point('st_zero_point', filt_wave, filt_trans)
+    result = _run_fortran_zero_point('st_zero_point', filt_wave, filt_trans,
+                                     photon_counting=photon_counting)
     if result is not None:
         return result
 
     f_st = np.full_like(filt_wave, _ST_FLAM_ZP)
-    num = _trapezoid(filt_wave, f_st * filt_trans * filt_wave)
-    den = _trapezoid(filt_wave, filt_trans * filt_wave)
-    return num / den if den > 0.0 else -1.0
+    return _band_average(filt_wave, f_st * filt_trans, filt_trans, photon_counting)

@@ -11,7 +11,15 @@ The inverse model recovers a posterior over stellar parameters from observed bro
 \ln \mathcal{L} = -\frac{1}{2} \sum_i \left[ \frac{(m_i^{\rm obs} - m_i^{\rm model})^2}{\sigma_i^2} + \ln\left(2\pi \sigma_i^2\right) \right]
 \]
 
-Model magnitudes come from `run_forward` in FitParams mode — the **same code path as the forward model**, with no separate likelihood implementation to drift out of sync. Any exception inside the forward evaluation, or a non-finite model magnitude, returns \(-\infty\) so the walker simply moves away.
+Model magnitudes come from the **same Fortran kernels, called in the same order, as `run_forward`** (interpolate, dilute, extinguish, convolve), minus the parts that do not affect magnitudes (bolometric integral, nearest-grid diagnostic, rebuilding the extinction model every call). A test checks agreement with `run_forward` to 1e-9 mag. Any exception inside the evaluation, a non-finite model magnitude, or a query that touches an *empty* grid node (Kurucz-type grids store unphysical corners, e.g. hot + low gravity, as all-zero SEDs that the forward model turns into finite magnitudes near 770) returns \(-\infty\) so the walker simply moves away.
+
+Optional extensions, all off by default:
+
+- `sys_floor=0.03` adds a systematic error floor (mag) in quadrature to every uncertainty.
+- `fit_jitter=True` samples one extra common term `sigma_sys` (flat on `[0, jitter_max]`), added in quadrature to all uncertainties; it appears as the last column of `samples`.
+- `priors={'d': ('parallax', 2.0, 0.05), 'a_v': ('halfnormal', 0.5), ...}` multiplies in extra priors (`normal`, `halfnormal`, `parallax` and `edsd` for distance, or any callable returning a log prior).
+- `upper_limits=[False, True, ...]` flags bands whose entry is a magnitude lower limit; they contribute \(\ln\Phi((m^{\rm model}-m^{\rm obs})/\sigma)\).
+- Non-finite magnitudes or uncertainties are dropped (with a warning) instead of poisoning the likelihood.
 
 ## Basic usage
 
@@ -58,19 +66,26 @@ When `Av` is active (free, or fixed > 0) and no `extinction` model is supplied, 
 
 ## Walker initialisation
 
-Walkers start in a Gaussian ball of width `p0_scatter` (a fraction of each free parameter's range, default 0.02), centred on the midpoint of each parameter's bounds unless you supply a starting point:
+By default (`init='auto'`) the sampler does not start from a ball at the middle of the prior box (which, for the full Kurucz grid, is a 27 000 K, logg 2.5 point that lies in an empty corner of the grid). Instead it
+
+1. evaluates the posterior on a stratified (Latin hypercube) draw over the prior box, log-uniform in Teff and distance;
+2. refines the best few distinct candidates with Levenberg-Marquardt on the magnitude residuals (pure NumPy);
+3. estimates each optimum's covariance from the Gauss-Newton Jacobian and its relative posterior mass by importance sampling, and
+4. starts the walkers in those ellipsoids, giving every plausible mode a viable sub-ensemble.
+
+With `init='auto'` the ensemble uses a differential-evolution move mixture (`moves='de'`, including mode-hopping jumps), which rebalances walkers between modes and decorrelates about twice as fast as emcee's stretch move. Pass `moves='stretch'` for the old behaviour.
+
+To use the legacy Gaussian ball, give a starting point or ask for it:
 
 ```python
 posterior = run_inverse(
     ...,
-    p0_centre={"teff": 5800, "logg": 4.4, "meta": 0.0},
-    # or the convenience aliases (p0_centre wins on conflict):
-    p0_teff=5800, p0_logg=4.4, p0_meta=0.0,
-    p0_scatter=0.02,
+    p0_centre={"teff": 5800, "logg": 4.4, "meta": 0.0},   # implies init='ball'
+    p0_scatter=0.02,                                      # fraction of each range
 )
 ```
 
-Initial positions are clipped to the prior bounds.
+`n_burn=None` picks the burn-in automatically (twice the autocorrelation time, at most half the chain), and `auto_stop=True` samples in blocks and stops once the chain exceeds 50 autocorrelation times.
 
 ## Input validation
 
@@ -79,12 +94,22 @@ Initial positions are clipped to the prior bounds.
 - `obs_magnitudes` and `obs_uncertainties` differ in length, or `filter_names` does not match them;
 - any uncertainty is ≤ 0 (the likelihood would be undefined);
 - a filter name is not among the supplied filters;
-- `n_walkers < 6`, `n_walkers < 2 × n_free`, or `n_burn >= n_steps`;
+- `n_walkers < 6`, `n_walkers < 2 × n_free`, or an integer `n_burn >= n_steps`;
 - every parameter is fixed (nothing to sample).
 
 ## Diagnostics
 
-After sampling, a `UserWarning` is emitted if any walker's acceptance fraction falls below 0.1 or above 0.9. The integrated autocorrelation time is estimated with `sampler.get_autocorr_time(quiet=True)` and stored as `autocorr_time` (or `None` if the chain was too short for a reliable estimate).
+After sampling, a `UserWarning` is emitted if any walker's acceptance fraction falls below 0.1 or above 0.9. The result carries
+
+- `autocorr_time` (integrated autocorrelation time per parameter, `None` if it could not be estimated),
+- `converged` (`True` when the post-burn-in chain is longer than 50 autocorrelation times for every parameter) and `n_eff` (effective number of independent samples per parameter),
+- `chi2_best` / `n_data` (data chi-square of the maximum-posterior sample and the number of detected bands), and
+- `init_info` (how the walkers were started: method, number of modes, walkers per mode, likelihood evaluations).
+
+`posterior.credible_interval('meta', 0.68, method='hpd')` returns the shortest interval containing the requested mass; unlike the equal-tailed intervals in `summary()`, it extends to the bound when the posterior mode sits on a prior bound.
+
+!!! note "Calibration caveats"
+    Intervals are only as good as the model: with real photometry the atmosphere library, filter curves and zero points contribute systematic errors that the Gaussian likelihood does not know about (use `sys_floor` or `fit_jitter`). Fitting independent MIST bolometric-correction photometry (different atmospheres, filter curves and Vega zero point) with the Kurucz grid, the nominal 95 % Teff intervals covered the truth 46 % of the time; `sys_floor=0.03` raised that to 62 % and `fit_jitter=True` to 89 %. Weakly constrained parameters (logg from a few broad bands, Teff-Av degeneracy for few bands) have posteriors dominated by the flat prior and can be genuinely multimodal; check `converged`, and consider informative priors via `priors=`.
 
 ## The result
 
