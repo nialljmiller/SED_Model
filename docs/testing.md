@@ -9,13 +9,13 @@ Both suites skip gracefully — with an explanatory reason — when the Fortran 
 
 ## Data locations
 
-The tests look for SED_Tools data products at `~/SED_Tools/data/...` by default, overridable via environment variables:
+The tests look for SED_Tools data products in `~/.sed_tools/data`, then `~/SED_Tools/data`, then `$MESA_DIR/data/colors_data`, using the first location that exists. Each path can be overridden with an environment variable:
 
-| Variable | Default |
+| Variable | Path under the data root |
 |---|---|
-| `CC_KURUCZ_DIR` | `~/SED_Tools/data/stellar_models/Kurucz2003all` |
-| `CC_JOHNSON_DIR` | `~/SED_Tools/data/filters/Generic/Johnson` |
-| `CC_VEGA_SED` | `~/SED_Tools/data/stellar_models/vega_flam.csv` |
+| `CC_KURUCZ_DIR` | `stellar_models/Kurucz2003all` |
+| `CC_JOHNSON_DIR` | `filters/Generic/Johnson` |
+| `CC_VEGA_SED` | `stellar_models/vega_flam.csv` |
 
 ## Forward model: validated against MESA
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.2] — 2026-10-25
+
+- **Filter files from SED_Tools 0.4.0 load again.** SED_Tools 0.4.0 puts its
+  metadata on the column row (`Wavelength,Transmission,FilterID=...;DetectorType=...`);
+  the loader now reads only the first two columns instead of failing with
+  `expected two-column file`. Required for SED_Tools >= 0.4.0 filter files.
+  The metadata itself is not read yet.
+- Tests find their data in `~/.sed_tools/data` as well as the older locations
+  and `$MESA_DIR/data/colors_data`.
+
 ## [0.3.1] — 2026-10-23
 
 Packaging and CI only; no numerical changes.

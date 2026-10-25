@@ -227,8 +227,11 @@ def _load_filter_dat(path: Path) -> tuple[np.ndarray, np.ndarray]:
         raise FileNotFoundError(f"Filter file not found: {path}")
 
     delimiter = _sniff_delimiter(path)
+    # usecols: SED_Tools >= 0.4.0 appends a metadata field to the column row
+    # (``Wavelength,Transmission,FilterID=...;DetectorType=...``), which would
+    # otherwise make genfromtxt expect three columns.
     data = np.genfromtxt(path, comments="#", delimiter=delimiter,
-                         invalid_raise=False)
+                         usecols=(0, 1), invalid_raise=False)
 
     if data.ndim == 2:
         mask = np.isfinite(data[:, 0]) & np.isfinite(data[:, 1])
