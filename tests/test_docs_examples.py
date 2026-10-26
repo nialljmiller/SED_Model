@@ -38,22 +38,17 @@ def _quick_start() -> str:
     return re.search(r"```python\n(.*?)```", section, re.S).group(1)
 
 
-@pytest.mark.xfail(strict=True, raises=(ValueError, AssertionError), reason=
-    "docs bug: load_filters() is called without vega_sed_path but mag_system='Vega' "
-    "is requested -> ValueError 'Vega zero-point not available'")
 def test_readme_quick_start(monkeypatch, tmp_path):
     code = _quick_start()
     code = code.replace("/path/to/Kurucz2003all/", str(KURUCZ_DIR))
     code = code.replace("/path/to/filters/GAIA/G.dat", _find_filter("G.dat"))
     code = code.replace("/path/to/filters/2MASS/J.dat", _find_filter("J.dat"))
+    code = code.replace("/path/to/stellar_models/vega_flam.csv", str(VEGA_SED))
     assert "/path/to" not in code
     monkeypatch.chdir(tmp_path)
     exec(compile(code, "README.md:QuickStart", "exec"), {"__name__": "__quickstart__"})
 
 
-@pytest.mark.xfail(strict=True, raises=(ValueError, AssertionError), reason=
-    "docs bug: load_filters() is called without vega_sed_path but mag_system='Vega' "
-    "is requested -> ValueError 'Vega zero-point not available'")
 def test_demo_api_usage(tmp_path):
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "stellar_models").symlink_to(DATA_ROOT / "stellar_models")
