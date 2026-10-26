@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.4.4] — 2026-10-25
+
+Inverse-side guard rails; the forward model and the sampled posterior for a
+given problem are unchanged except as noted in the first item.
+
+- **The fitter rejects Hermite-stencil holes.** With `interp_method='hermite'`
+  or `'hermite_bounded'`, `run_inverse` now treats a cell whose Hermite
+  stencil touches an empty node (`AtmosphereGrid.cell_has_empty_nodes(...,
+  stencil=True)`) like a cell with an empty corner: the posterior is -inf
+  there, so neither the walker initialisation nor the chain visits it. The
+  per-cell mask is built once, lazily, so the check is an array lookup.
+  `interp_method='linear'` and grids without empty nodes are unaffected.
+- **Non-convergence warning.** `run_inverse` emits a `UserWarning` when the
+  chain ends with `converged False` (shorter than 50 autocorrelation times
+  after burn-in), suggesting a larger `n_steps` or `auto_stop=True`. (With
+  `auto_stop=True` the existing auto_stop warning is used instead.) Defaults
+  and results are unchanged.
+- **`fit_jitter` hint.** With `fit_jitter=False` and `chi2_best / n_data > 5`
+  a `UserWarning` suggests `fit_jitter=True` (or `sys_floor`): the quoted
+  uncertainties then probably under-estimate the model/photometry mismatch.
+- Tests: `tests/test_inverse_guards.py`.
+
 ## [0.4.3] - 2026-10-25
 
 Documentation only.
