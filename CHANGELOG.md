@@ -1,8 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.5] — 2026-10-25
 
-Documentation only: `docs/testing.md` now attributes the large grid-edge Hermite
+Documentation and tests only; no change to the package code or results.
+
+`docs/testing.md` now attributes the large grid-edge Hermite
 differences from MSG to empty stencil nodes, which the 0.4.2 warning covers.
 
 The test suite no longer looks for data under `$MESA_DIR`. SED_Model has no
