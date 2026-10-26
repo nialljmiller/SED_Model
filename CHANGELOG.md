@@ -9,6 +9,9 @@ The test suite no longer looks for data under `$MESA_DIR`. SED_Model has no
 dependency on MESA; the tests use SED_Tools data (`~/.sed_tools/data`,
 `~/SED_Tools/data`) or the `CC_*` path variables.
 
+The README, docs home page and `CITATION.cff` now state that SED_Model is a
+spin-off of the MESA `colors` module and give the MESA references to cite.
+
 ## [0.4.4] — 2026-10-25
 
 Inverse-side guard rails; the forward model and the sampled posterior for a

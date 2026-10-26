@@ -1,6 +1,6 @@
 # Fortran Kernels
 
-The numerically heavy parts of SED_Model are Fortran, laid out to mirror the `colors` module of [MESA](https://docs.mesastar.org/) so that results can be compared with MESA directly and changes in MESA can be followed. The kernels are LGPL-3.0-or-later (see the licence section of the README).
+SED_Model is a spin-off of the `colors` module of [MESA](https://docs.mesastar.org/). Its numerically heavy parts are Fortran, laid out to mirror that module so that results can be compared with MESA directly and changes in MESA can be followed. The kernels are LGPL-3.0-or-later (see the licence section of the README).
 
 ## Layout
 
