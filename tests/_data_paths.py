@@ -2,7 +2,7 @@
 
 Each path can be set with an environment variable; otherwise the first
 existing candidate is used (SED_Tools' own cache, the older ``~/SED_Tools``
-layout, then the data shipped with a MESA checkout).
+layout).
 """
 
 from __future__ import annotations
@@ -13,8 +13,6 @@ _ROOTS = [
     os.path.expanduser("~/.sed_tools/data"),
     os.path.expanduser("~/SED_Tools/data"),
 ]
-if os.environ.get("MESA_DIR"):
-    _ROOTS.append(os.path.join(os.environ["MESA_DIR"], "data", "colors_data"))
 
 
 def _find(env: str, *parts: str) -> str:

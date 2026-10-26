@@ -12,7 +12,7 @@ All three suites skip, with an explanatory reason, when the Fortran extension is
 
 ## Data locations
 
-The tests look for SED_Tools data products in `~/.sed_tools/data`, then `~/SED_Tools/data`, then `$MESA_DIR/data/colors_data`, using the first location that exists. Each path can be overridden with an environment variable:
+The tests look for SED_Tools data products in `~/.sed_tools/data`, then `~/SED_Tools/data`, using the first location that exists. Each path can be overridden with an environment variable:
 
 | Variable | Path under the data root |
 |---|---|
