@@ -88,4 +88,5 @@ nav:
       - Playground: demos/playground.md
       - API Usage Script: demos/api-usage.md
   - API Reference: api.md
+  - Fortran Kernels: fortran.md
   - Testing and Validation: testing.md

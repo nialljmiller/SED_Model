@@ -31,6 +31,7 @@ from sed_model import (
 
 GRID_DIR = Path("data/stellar_models/Kurucz2003all")
 FILTER_DIR = Path("data/filters/Generic/Johnson")
+VEGA_SED = Path("data/stellar_models/vega_flam.csv")   # needed for mag_system="Vega"
 
 R_SUN = RSUN_TO_CM
 D_10_PC = 10.0 * PC_TO_CM
@@ -38,7 +39,7 @@ D_10_PC = 10.0 * PC_TO_CM
 
 def main() -> None:
     grid = load_grid(GRID_DIR)
-    filters = load_filters_from_instrument_dir(FILTER_DIR)
+    filters = load_filters_from_instrument_dir(FILTER_DIR, vega_sed_path=VEGA_SED)
 
     print(grid)
     print(f"Loaded {len(filters)} filters:")

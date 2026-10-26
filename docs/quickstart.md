@@ -14,7 +14,7 @@ filters = load_filters([
 ])
 ```
 
-To use the **Vega** magnitude system, supply a Vega reference SED when loading filters (otherwise only AB and ST zero-points are computed):
+To use the **Vega** magnitude system, supply a Vega reference SED when loading filters. Without it only the AB and ST systems are available, and asking for Vega raises `ValueError`:
 
 ```python
 filters = load_filters(
@@ -42,6 +42,8 @@ result = run_forward(
 print(result.magnitudes)   # {'G': ..., 'J': ...}
 print(result.bol_mag)      # bolometric magnitude
 ```
+
+If the star falls in a grid cell that touches a node with no model, `run_forward` emits a `UserWarning` and the numbers it returns there should not be trusted; see [Forward Model](guide/forward.md#empty-grid-cells).
 
 All lengths are **cgs (cm)**; the convenience constants `RSUN_TO_CM` and `PC_TO_CM` are exported:
 
@@ -76,7 +78,7 @@ posterior.print_summary()
 posterior.save("posterior.npz")
 ```
 
-By default this samples `Teff`, `logg`, and `[M/H]` across the full grid with flat priors, holding `Av = 0` and the supplied distance fixed. To change which parameters are sampled, pass a [`FitParams`](guide/parameters.md):
+By default this samples `Teff`, `logg`, and `[M/H]` across the full grid with flat priors, holding `Av = 0` and the supplied distance fixed. Check `posterior.converged` before trusting the intervals; see [Diagnostics](guide/inverse.md#diagnostics). To change which parameters are sampled, pass a [`FitParams`](guide/parameters.md):
 
 ```python
 from sed_model import fit_params_from_grid

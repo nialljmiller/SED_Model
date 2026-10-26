@@ -32,7 +32,8 @@ This matches the layout written by SED_Tools and read by the MESA colors module 
 | `teff_bounds`, `logg_bounds`, `meta_bounds` | `(min, max)` per axis |
 | `in_bounds(teff, logg, meta)` | True if the point lies within all three axes |
 | `clamp(teff, logg, meta)` | the point clipped to the grid boundary |
-| `interp_radius(teff, logg, meta)` | Euclidean distance in normalised parameter space from the nearest grid node — mirrors the `Interp_rad` diagnostic of the MESA colors module |
+| `nearest_grid_distance(teff, logg, meta)` | Euclidean distance in normalised parameter space from the nearest tabulated model (empty nodes excluded) — the `Interp_rad` diagnostic of the MESA colors module |
+| `cell_has_empty_nodes(teff, logg, meta, stencil=False)` | True if the cell containing the point touches a node with no model; `stencil=True` also checks the nodes the Hermite derivatives read (see [Forward Model](forward.md#empty-grid-cells)) |
 
 ## Filters
 

@@ -15,7 +15,7 @@ All demos follow the same pattern: paths to SED_Tools data products are configur
 
 ## Requirements
 
-The demos need the compiled Fortran extension (`make`), `matplotlib` (`pip install "sed-model[demo]"`), `emcee` for the inverse demos, and SED_Tools data products on disk. Each script's path block looks like:
+The demos need an installed `sed-model` (the PyPI wheel includes the compiled extension; from a source checkout use `pip install -e .`), `matplotlib` (`pip install "sed-model[demo]"`), `emcee` for the inverse demos, and SED_Tools data products on disk. Each script's path block looks like:
 
 ```python
 GRID_DIR   = "~/SED_Tools/data/stellar_models/Kurucz2003all"

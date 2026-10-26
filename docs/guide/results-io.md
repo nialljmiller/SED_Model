@@ -28,6 +28,11 @@ Returned by `run_inverse`; a frozen container with:
 | `n_walkers`, `n_steps`, `n_burn`, `n_thin` | sampler settings |
 | `acceptance_fraction` | per-walker acceptance fractions |
 | `autocorr_time` | integrated autocorrelation time per free parameter, or `None` |
+| `converged`, `n_eff` | whether the post-burn-in chain exceeds 50 autocorrelation times for every parameter, and the effective number of independent samples per parameter |
+| `chi2_best`, `n_data` | data chi-square of the maximum-posterior sample, and the number of bands used |
+| `init_info` | how the walkers were started (method, number of modes, walkers per mode, likelihood evaluations) |
+
+The new fields are saved to and restored from `.npz` files. If `fit_jitter=True` was used, the last column of `samples` is `sigma_sys` and it appears in `param_names`.
 
 ### Summaries
 
@@ -44,6 +49,14 @@ posterior.print_summary()
 ```
 
 prints a formatted block including the sampled and fixed parameters, the median ± asymmetric 1σ for each free parameter, mean acceptance fraction, and autocorrelation times.
+
+### Credible intervals
+
+```python
+posterior.credible_interval("meta", 0.68, method="hpd")   # shortest interval holding 68 %
+```
+
+`method="hpd"` returns the highest-posterior-density interval, which reaches the bound when the posterior mode sits on a prior bound; the equal-tailed intervals in `summary()` do not.
 
 ### MAP estimate
 

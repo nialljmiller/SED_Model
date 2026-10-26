@@ -109,7 +109,20 @@ After sampling, a `UserWarning` is emitted if any walker's acceptance fraction f
 `posterior.credible_interval('meta', 0.68, method='hpd')` returns the shortest interval containing the requested mass; unlike the equal-tailed intervals in `summary()`, it extends to the bound when the posterior mode sits on a prior bound.
 
 !!! note "Calibration caveats"
-    Intervals are only as good as the model: with real photometry the atmosphere library, filter curves and zero points contribute systematic errors that the Gaussian likelihood does not know about (use `sys_floor` or `fit_jitter`). Fitting independent MIST bolometric-correction photometry (different atmospheres, filter curves and Vega zero point) with the Kurucz grid, the nominal 95 % Teff intervals covered the truth 46 % of the time; `sys_floor=0.03` raised that to 62 % and `fit_jitter=True` to 89 %. Weakly constrained parameters (logg from a few broad bands, Teff-Av degeneracy for few bands) have posteriors dominated by the flat prior and can be genuinely multimodal; check `converged`, and consider informative priors via `priors=`.
+    Intervals are only as good as the model: with real photometry the atmosphere library, filter curves and zero points contribute systematic errors that the Gaussian likelihood does not know about (use `sys_floor` or `fit_jitter`). Fitting independent MIST bolometric-correction photometry (different atmospheres, filter curves and Vega zero point) with the Kurucz grid, the nominal 95 % Teff intervals covered the truth 39 % of the time; `fit_jitter=True` raised that to 85 % (0.4.0 benchmark: 46 % plain, 62 % with `sys_floor=0.03`, 89 % with `fit_jitter`). `fit_jitter` makes the intervals honest but does not remove the offset itself: Teff stays about 0.5 % low in that test. Weakly constrained parameters (logg from a few broad bands, Teff-Av degeneracy for few bands) have posteriors dominated by the flat prior and can be genuinely multimodal; check `converged`, and consider informative priors via `priors=`.
+
+!!! note "What to expect"
+    Injection-and-recovery on the Kurucz grid (16 stars per cell, 0.005 and 0.02 mag noise, Johnson, optical+NIR and wide band sets, 0.4.1 defaults):
+
+    | Free parameters | Teff bias | Teff scatter (MAD) | Teff 68 % / 95 % coverage |
+    |---|---|---|---|
+    | Teff, logg, [M/H], Av | +0.1 % | 1.2 % | 0.75 / 0.97 |
+    | Teff, logg, [M/H], Av, distance | +0.6 % | 4.9 % | 0.57 / 0.90 |
+
+    With Av and distance both free the default 2000 steps are usually too few, and only about 5 % of those fits report `converged`; the coverage is still reasonable, so the flag is conservative, but increase `n_steps` for science use. Fits to only three bands with Av and distance both free are effectively unconstrained and should not be trusted. logg and [M/H] are poorly constrained by broadband photometry; an informative [M/H] prior (a width of 0.3 dex in the test) cut the [M/H] scatter from 0.60 to 0.21 dex.
+
+!!! warning "Fixed radius"
+    `R` is not sampled, so it feeds directly into Teff through L ∝ R²T⁴. A radius 14 % too small biases Teff about 7 % high. Fitting the apparent UBVRIJHK magnitudes of Vega at 7.68 pc, with R = 2.36 R☉ (its polar radius) the result was 10 400 K; with R = 2.71 R☉ (from the interferometric angular diameter) it was 9 500 K, against about 9 600 K from the literature. Use a radius that matches the measurement.
 
 ## The result
 

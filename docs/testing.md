@@ -8,7 +8,7 @@ pytest tests/test_kernels.py
 
 Run them from outside the source tree against an installed build; inside it `import sed_model` finds the uncompiled sources, has no extension, and every test skips.
 
-Both suites skip gracefully — with an explanatory reason — when the Fortran extension is not built or the required data products are not on disk, so `pytest` is always safe to run.
+All three suites skip, with an explanatory reason, when the Fortran extension is not built or the required data products are not on disk, so `pytest` is always safe to run. `test_kernels.py` needs no data files.
 
 ## Data locations
 
@@ -36,24 +36,25 @@ Tolerances are `TOL_MAG = 0.05` mag and `TOL_FLUX = 2%` relative — deliberatel
 
 Chains are kept deliberately short (hundreds of steps, 16 walkers) so the suite finishes quickly; the tolerances account for the resulting shot noise. The suite also covers the `InverseResult` API — summary structure and ordering, finite MAP estimates, `.npz` save/load round-trips, thinning behaviour — and the input-validation errors (mismatched array lengths, non-positive uncertainties, unknown filter names).
 
-## Cross-code validation (0.4.0)
+## Cross-code validation
 
-Before 0.4.0 the forward model was swept against the MESA `colors` module, MSG and MIST, and the inverse model was benchmarked by injection and recovery. Summary of what a user should expect:
+The forward model was swept against the MESA `colors` module, MSG and MIST for 0.4.0 and swept again against the released 0.4.1 wheel; the inverse model was benchmarked by injection and recovery. What a user should expect:
 
 | Against | Result |
 |---|---|
-| **MESA colors** (standalone driver built from the MESA sources; Kurucz2003all, its alpha-enhanced variant and blackbodies; Johnson, 2MASS, Gaia, TESS, JWST and Argus filters; AB, Vega and ST; all three interpolation methods; on-node, off-node, cell-edge, corner and out-of-range queries) | SEDs, bolometric quantities and wavelengths identical; magnitudes within 3e-13 mag (double-precision rounding). |
-| **MSG** (same atmospheres, built into an MSG grid from the SED_Model cube) | `linear` agrees to about 1e-8. Hermite differs by 1e-5 to 1e-3 in clean cells because MSG's cubic includes cross-derivative terms. Photometry agrees to 1-4 mmag; U and B reach 13 mmag from quadrature on the coarse Johnson files. |
-| **MIST v2.5** bolometric corrections (C3K atmospheres, a different library) | 0.01-0.03 mag in V, I, 2MASS and Gaia at equal Teff, logg and [Fe/H]; up to 0.05-0.1 mag in U. These are model differences, not code errors. |
+| **MESA colors** (standalone driver built from the MESA sources; Kurucz2003all, its alpha-enhanced variant and blackbodies; Johnson, 2MASS, Gaia, TESS, JWST and Argus filters; AB, Vega and ST; all three interpolation methods; on-node, off-node, cell-edge, corner and out-of-range queries; about 21 000 queries per method) | SEDs, bolometric magnitudes and wavelengths bit-identical; band magnitudes within 3e-13 mag (double-precision rounding). Filters tagged `DetectorType=energy` agree with MESA's photon-counting-filters branch to about 1e-13 mag. |
+| **MSG** (same atmospheres, built into an MSG grid from the SED_Model cube) | `linear` agrees to about 1e-7 relative in the spectra. With a complete Hermite stencil, Hermite photometry agrees to better than 6 mmag. Linear photometry agrees to 1-4 mmag; U and B reach 13 mmag from quadrature on the coarse Johnson files. Vega and AB zero points agree with an independent calculation to better than 1e-5 mag. |
+| **MIST v2.5** bolometric corrections (C3K atmospheres, a different library) | Median offsets of 0.005-0.02 mag in V, I, J, Ks and Gaia, with a scatter of about 0.01 mag; about 0.06 mag in U. These are model differences, not code errors. The offset grows from -0.006 mag at 9 000 K to about -0.04 mag at 25 000 K in V and is nearly colour-neutral (B-V and V-I change by less than 0.003 mag). |
 
 Things that matter when comparing with other work:
 
 - **Weighting.** `synthetic_magnitude` counts photons, as MESA does. Energy weighting would change Gaia G by up to 0.25 mag for cool stars, for curves defined for energy-counting detectors (e.g. Bessell UBVRI). From 0.4.1 filters tagged `DetectorType=energy` are converted accordingly; see [Grids and Filters](guide/grids-and-filters.md#detector-type).
-- **Filter definition.** The shipped `Generic/Johnson` curves are coarse and differ from Bessell/Cousins by up to 0.2 mag in R and I for cool stars.
+- **Filter definition.** The shipped `Generic/Johnson` curves differ from the Bessell (1990) curves MIST uses: mean wavelength 7025 vs 6650 Å in R and 8871 vs 8086 Å in I. Against MIST this gives residuals up to +0.15 mag in I for cool stars and -0.09 mag for hot ones. Use Bessell-type curves when comparing with MIST in these bands.
 - **2MASS Vega zero points** follow Blanton and Roweis, about 0.025 mag from MIST's Cohen-based values.
-- **Empty grid cells.** A rectangular grid cube can contain nodes with no model (for Kurucz2003all about 40% of the cube). `run_forward` emits a `UserWarning` when the query's cell touches one (for the Hermite methods, also when a node in the derivative stencil around the cell is empty), and the result there is unreliable; the values are still returned unchanged. Hermite interpolation next to empty nodes can overshoot by 0.02-0.09 mag; this is MESA's behaviour and is reproduced exactly.
+- **Empty grid cells.** A rectangular grid cube can contain nodes with no model (for Kurucz2003all about 40 % of the cube). `run_forward` emits a `UserWarning` when the query's cell touches one (for the Hermite methods, also when a node in the derivative stencil around the cell is empty), and the result there is unreliable; the values are still returned unchanged. In a cell with an empty corner the magnitudes come out near +770. With a populated cell but an empty stencil node, Hermite is off by a median 5.6 % in bolometric flux (up to 14 %, up to about 80 mmag in photometry). On Kurucz2003all 455 of the 2 723 cells with populated corners have such a gap. This is MESA's behaviour and is reproduced exactly. Before 0.4.2 only the empty-corner case warned. MIST points that fall in a warned cell should be masked before comparing.
+- **Grid edges.** Hermite photometry in grid-edge cells also differs from MSG by up to about 80 mmag. This has not been traced to empty nodes, and the warning does not claim to cover it.
 
-Inverse recovery on the Kurucz grid (16-24 injected stars per set, 0.005-0.05 mag noise): the old mid-box start left walkers stuck in an empty corner and chains unconverged. With the 0.4.0 defaults, fitting Teff, logg, [M/H] and Av gives a Teff bias near 0.1 % and 95 % intervals that cover the truth about 94 % of the time. Photometry from a different atmosphere library (the MIST test) is far outside the nominal intervals unless `fit_jitter` is used, which is recommended for real photometry.
+Inverse recovery on the Kurucz grid (16 stars per cell, 0.005-0.02 mag noise): the old mid-box start left walkers stuck in an empty corner and chains unconverged. With the 0.4.x defaults, fitting Teff, logg, [M/H] and Av gives a Teff bias near 0.1 %, a scatter of 1.2 % and Teff 95 % intervals that cover the truth 97 % of the time; with distance also free the scatter is 4.9 % and coverage 90 %. Photometry from a different atmosphere library (the MIST test) is far outside the nominal intervals unless `fit_jitter` is used, which is recommended for real photometry. See [Inverse Model](guide/inverse.md#diagnostics) for the full table and for what does not work (three bands with Av and distance free).
 
 The cross-code harnesses are not part of the repository; the in-repo regression tests (`tests/test_kernels.py`) encode the MESA cases that need no data.
 
