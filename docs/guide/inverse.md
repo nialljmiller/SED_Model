@@ -97,9 +97,13 @@ posterior = run_inverse(
 - `n_walkers < 6`, `n_walkers < 2 × n_free`, or an integer `n_burn >= n_steps`;
 - every parameter is fixed (nothing to sample).
 
+## Empty grid nodes
+
+Cells with an empty corner are rejected (zero posterior). With `interp_method='hermite'` or `'hermite_bounded'` the same holds for cells whose Hermite derivative stencil (one extra node either side along each axis) touches an empty node, matching the `run_forward` warning; both the walker initialisation and the chain stay out of them. `interp_method='linear'` rejects only empty-corner cells.
+
 ## Diagnostics
 
-After sampling, a `UserWarning` is emitted if any walker's acceptance fraction falls below 0.1 or above 0.9. The result carries
+After sampling, a `UserWarning` is emitted if any walker's acceptance fraction falls below 0.1 or above 0.9, if the chain ends with `converged` false (use a larger `n_steps` or `auto_stop=True`), or, with `fit_jitter=False`, if `chi2_best / n_data` exceeds 5 (try `fit_jitter=True`). Neither of the last two changes the result. The result carries
 
 - `autocorr_time` (integrated autocorrelation time per parameter, `None` if it could not be estimated),
 - `converged` (`True` when the post-burn-in chain is longer than 50 autocorrelation times for every parameter) and `n_eff` (effective number of independent samples per parameter),

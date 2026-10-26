@@ -70,6 +70,10 @@ if TYPE_CHECKING:
     from .sed_extinction import ExtinctionModel
 
 
+# chi2_best / n_data above this triggers the fit_jitter=True hint
+_POOR_FIT_CHI2_PER_DATUM = 5.0
+
+
 # ---------------------------------------------------------------------------
 # Prior
 # ---------------------------------------------------------------------------
@@ -510,6 +514,23 @@ def run_inverse(
 
     ib = int(np.argmax(flat_log_prob))
     chi2_best = float(problem.chi2(flat_samples[ib]))
+
+    if converged is False and not (auto_stop and not converged_auto):
+        warnings.warn(
+            "The chain is not converged (shorter than 50 autocorrelation times "
+            "after burn-in), so the posterior may be unreliable. Increase "
+            "n_steps, or set auto_stop=True to sample until it is.",
+            UserWarning, stacklevel=2,
+        )
+    if (not fit_jitter and problem.n_data > 0 and np.isfinite(chi2_best)
+            and chi2_best / problem.n_data > _POOR_FIT_CHI2_PER_DATUM):
+        warnings.warn(
+            f"Poor fit: chi2_best/n_data = {chi2_best / problem.n_data:.1f} "
+            f"(> {_POOR_FIT_CHI2_PER_DATUM:g}) with fit_jitter=False. The quoted "
+            "uncertainties probably under-estimate the model/photometry "
+            "mismatch; consider fit_jitter=True (or sys_floor).",
+            UserWarning, stacklevel=2,
+        )
     init_info = dict(init_info)
     init_info["n_evals"] = int(problem.n_evals)
 

@@ -91,6 +91,8 @@ class _FastModel:
         self.n_bands = len(self.bands)
         self.valid = grid_valid_nodes(grid)
         self._has_holes = not bool(self.valid.all())
+        self._hermite = self.method in ("hermite", "hermite_bounded")
+        self._stencil_bad = None     # lazy per-cell mask, see _cell_mask()
 
         self.ext = extinction if (extinction is not None
                                   and getattr(extinction.config, "enabled", False)) else None
@@ -122,10 +124,54 @@ class _FastModel:
         if not self._has_holes:
             return True
         g = self.grid
+        if self._hermite:
+            # Hermite derivatives also read the axis neighbours of every
+            # corner; reject cells where any of those is empty too.
+            return not self._cell_mask()[self._cell_index(g.clamp(teff, logg, meta))]
         it = _axis_nodes(g.teff_grid, teff)
         il = _axis_nodes(g.logg_grid, logg)
         im = _axis_nodes(g.meta_grid, meta)
         return bool(self.valid[np.ix_(it, il, im)].all())
+
+    @staticmethod
+    def _axis_live(axis: np.ndarray) -> bool:
+        # same collapse rule as AtmosphereGrid.cell_has_empty_nodes
+        return not (len(axis) < 2 or np.all(axis == 0.0) or np.all(axis == 999.0)
+                    or np.all(axis == -999.0))
+
+    def _cell_index(self, q) -> tuple:
+        g = self.grid
+        idx = []
+        for axis, x in zip((g.teff_grid, g.logg_grid, g.meta_grid), q):
+            if not self._axis_live(axis):
+                idx.append(0)
+            else:
+                idx.append(min(max(int(np.searchsorted(axis, x, side="right")) - 1, 0),
+                               len(axis) - 2))
+        return tuple(idx)
+
+    def _cell_mask(self) -> np.ndarray:
+        """Boolean (cells) array, True where the Hermite stencil of the cell
+        touches an empty node.  Built once (lazily) by evaluating
+        ``grid.cell_has_empty_nodes(stencil=True)`` at each cell centre; the
+        per-call check is then a single array lookup.
+        """
+        if self._stencil_bad is None:
+            g = self.grid
+            axes = (g.teff_grid, g.logg_grid, g.meta_grid)
+            mids = []
+            for a in axes:
+                if self._axis_live(a):
+                    mids.append(0.5 * (a[:-1] + a[1:]))
+                else:
+                    mids.append(np.array([a[0]]))
+            bad = np.zeros([len(m) for m in mids], bool)
+            for i, t in enumerate(mids[0]):
+                for j, l in enumerate(mids[1]):
+                    for k, m in enumerate(mids[2]):
+                        bad[i, j, k] = g.cell_has_empty_nodes(t, l, m, stencil=True)
+            self._stencil_bad = bad
+        return self._stencil_bad
 
     def mags(self, teff, logg, meta, av, d) -> Optional[np.ndarray]:
         """Magnitudes in ``filter_order``; None if the SED cannot be built."""
