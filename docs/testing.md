@@ -56,7 +56,7 @@ Things that matter when comparing with other work:
 
 Inverse recovery on the Kurucz grid (16 stars per cell, 0.005-0.02 mag noise): the old mid-box start left walkers stuck in an empty corner and chains unconverged. With the 0.4.x defaults, fitting Teff, logg, [M/H] and Av gives a Teff bias near 0.1 %, a scatter of 1.2 % and Teff 95 % intervals that cover the truth 97 % of the time; with distance also free the scatter is 4.9 % and coverage 90 %. Photometry from a different atmosphere library (the MIST test) is far outside the nominal intervals unless `fit_jitter` is used, which is recommended for real photometry. See [Inverse Model](guide/inverse.md#diagnostics) for the full table and for what does not work (three bands with Av and distance free).
 
-The cross-code harnesses are not part of the repository; the in-repo regression tests (`tests/test_kernels.py`) encode the MESA cases that need no data.
+The cross-code harnesses are not part of the repository; the in-repo regression tests (`tests/test_kernels.py`) encode the MESA cases that need no data, and `tests/test_reference.py` replays a frozen subset (`tests/data/reference_points.npz`: 33 MESA queries to 1e-10 mag, 24 MSG points at the tolerances above; skips if the extension or Kurucz data is absent).
 
 ## What this means for the documentation
 
