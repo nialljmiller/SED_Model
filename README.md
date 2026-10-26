@@ -406,7 +406,7 @@ pytest tests/test_forward.py     # needs a Kurucz grid and filters
 pytest tests/test_inverse.py     # needs a Kurucz grid and filters
 ```
 
-Run these from outside the source tree against an installed build: inside it, `import sed_model` finds the uncompiled sources and every test is skipped. Tests that need data look in `~/.sed_tools/data`, `~/SED_Tools/data` and `$MESA_DIR/data/colors_data`.
+Run these from outside the source tree against an installed build: inside it, `import sed_model` finds the uncompiled sources and every test is skipped. Tests that need data look in `~/.sed_tools/data` and `~/SED_Tools/data`; the `CC_*` variables in [Testing and Validation](docs/testing.md) override them.
 
 * `test_kernels.py` covers the Fortran kernels and filter handling (MESA colors unit-test cases, detector type, wavelength units, empty-grid warnings) without any data files.
 * `test_forward.py` compares magnitudes and bolometric quantities against reference values from the MESA colors unit test.

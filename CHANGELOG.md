@@ -5,6 +5,10 @@
 Documentation only: `docs/testing.md` now attributes the large grid-edge Hermite
 differences from MSG to empty stencil nodes, which the 0.4.2 warning covers.
 
+The test suite no longer looks for data under `$MESA_DIR`. SED_Model has no
+dependency on MESA; the tests use SED_Tools data (`~/.sed_tools/data`,
+`~/SED_Tools/data`) or the `CC_*` path variables.
+
 ## [0.4.4] — 2026-10-25
 
 Inverse-side guard rails; the forward model and the sampled posterior for a
