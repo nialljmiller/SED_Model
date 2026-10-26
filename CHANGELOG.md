@@ -12,6 +12,8 @@ dependency on MESA; the tests use SED_Tools data (`~/.sed_tools/data`,
 The README, docs home page and `CITATION.cff` now state that SED_Model is a
 spin-off of the MESA `colors` module and give the MESA references to cite.
 
+The README was rewritten to be shorter; the API listings now live in the docs.
+
 ## [0.4.4] — 2026-10-25
 
 Inverse-side guard rails; the forward model and the sampled posterior for a
