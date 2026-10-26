@@ -2,7 +2,7 @@
 # and for the others the checks below give a readable error if one is missing.
 project(
   'sed_model',
-  version: '0.4.4',
+  version: '0.4.5',
   meson_version: '>=1.1.0',
 )
 
