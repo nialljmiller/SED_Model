@@ -6,7 +6,7 @@
 
 **Synthetic photometry and stellar parameter inference.**
 
-SED_Model is a Python package for computing observer-ready synthetic spectral energy distributions (SEDs) and broadband magnitudes from stellar atmosphere grids, and for recovering stellar parameters from observed photometry via Bayesian MCMC inference. It is designed to work directly downstream of `SED_Tools` and as a standalone drop-in for workflows that use MESA-style atmosphere grids and filter transmission curves.
+SED_Model is a Python package for computing observer-ready synthetic spectral energy distributions (SEDs) and broadband magnitudes from stellar atmosphere grids, and for recovering stellar parameters from observed photometry via Bayesian MCMC inference. It is designed to work directly downstream of `SED_Tools` and as a standalone drop-in for workflows that use MESA-style atmosphere grids and filter transmission curves. It is a spin-off of the `colors` module of [MESA](https://docs.mesastar.org/) and reproduces its synthetic photometry (see [Relationship to MESA](#relationship-to-mesa)).
 
 Version: `0.4.4`
 
@@ -373,6 +373,16 @@ posterior.save("posterior_samples.npz")
 
 ---
 
+## Relationship to MESA
+
+SED_Model is a spin-off of the `colors` module of [MESA](https://docs.mesastar.org/) (Modules for Experiments in Stellar Astrophysics), which was developed by the same author. The module computes bolometric corrections and synthetic photometry inside a stellar-evolution run. SED_Model carries that machinery out of MESA into a standalone Python package, so it can be used on observed photometry and without a MESA installation.
+
+* The Fortran kernels follow the `colors` module file by file, and the forward model is tested to reproduce it (see [Testing](#testing)). The default interpolation, the IAU 2015 bolometric zero point and the photon-counting band integrals are MESA's.
+* The inverse model, the Python interface, the filter and extinction handling, and the warnings for empty grid cells are specific to SED_Model.
+* SED_Model does not need MESA, and nothing in the package reads a MESA installation. MESA is credited here as the origin of the numerics; see [Credits](#credits) for the references to cite.
+
+---
+
 ## Relationship to SED_Tools
 
 SED_Model sits directly downstream of `SED_Tools`.
@@ -450,7 +460,7 @@ If you use SED_Model in published work, please cite it using [`CITATION.cff`](CI
 
 ## Credits
 
-* The Fortran kernels (interpolation, integration, zero-points, bolometric quantities) are ported from the `colors` module of [MESA](https://docs.mesastar.org/), and SED_Model is tested against it. They keep MESA's licence (LGPL-3.0-or-later).
+* [MESA](https://docs.mesastar.org/): SED_Model is a spin-off of its `colors` module. The Fortran kernels (interpolation, integration, zero-points, bolometric quantities) are ported from it, and SED_Model is tested against it. They keep MESA's licence (LGPL-3.0-or-later). If you use SED_Model, please also cite MESA: Paxton et al. 2011, ApJS 192, 3; 2013, ApJS 208, 4; 2015, ApJS 220, 15; 2018, ApJS 234, 34; 2019, ApJS 243, 10; Jermyn et al. 2023, ApJS 265, 15.
 * [SED_Tools](https://github.com/nialljmiller/SED_Tools) produces the atmosphere grids and filter files SED_Model reads.
 * Sampling is done with [emcee](https://emcee.readthedocs.io/) (Foreman-Mackey et al. 2013, PASP 125, 306).
 * The extinction laws are re-implemented from the original papers: Cardelli, Clayton & Mathis (1989), O'Donnell (1994), Fitzpatrick (1999), Fitzpatrick & Massa (2007), Calzetti et al. (2000) and Gordon et al. (2023). Full references are in the [Extinction guide](https://nialljmiller.github.io/SED_Model/guide/extinction/).

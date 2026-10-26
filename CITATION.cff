@@ -14,3 +14,18 @@ license:
   - MIT
   - LGPL-3.0-or-later
 date-released: 2026-10-25
+references:
+  - type: software
+    title: "Modules for Experiments in Stellar Astrophysics (MESA), colors module"
+    url: "https://docs.mesastar.org/"
+    notes: "SED_Model is a spin-off of the MESA colors module; the Fortran kernels are ported from it."
+  - type: article
+    authors:
+      - family-names: "Jermyn"
+        given-names: "Adam S."
+    title: "Modules for Experiments in Stellar Astrophysics (MESA): Time-dependent Convection, Energy Conservation, Automatic Differentiation, and Infrastructure"
+    journal: "The Astrophysical Journal Supplement Series"
+    volume: 265
+    issue: 1
+    start: 15
+    year: 2023
