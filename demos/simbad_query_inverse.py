@@ -263,7 +263,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--extinction-law",
         default="fitzpatrick99",
-        choices=["ccm89", "odonnell94", "fitzpatrick99", "fm07", "calzetti00", "gordon23"],
+        choices=["ccm89", "odonnell94", "fitzpatrick99", "fm07", "calzetti00", "gordon23",
+                 "g03_smcbar", "g03_lmcavg"],
         help="Extinction law to use when Av is free (default: fitzpatrick99)",
     )
     return parser.parse_args()

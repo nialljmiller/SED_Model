@@ -27,7 +27,7 @@ SED_Model  ->  generate synthetic magnitudes and infer stellar parameters
 - Bounded Hermite (default), Hermite and linear interpolation over 3D atmosphere grids `(Teff, logg, [M/H])`.
 - Photon-counting filter convolution in Vega, AB, and ST photometric systems.
 - Precomputed zero-points matching MESA `colors/private/synthetic.f90` conventions.
-- Pure-NumPy interstellar dust extinction with six supported laws, including Gordon et al. (2023).
+- Pure-NumPy interstellar dust extinction with eight supported laws, including Gordon et al. (2003, 2023).
 - Bayesian stellar-parameter inference via `emcee` with fixed, bounded, and fully free parameter modes.
 - Structured result containers with summaries, persistence to CSV and NPZ, and interpolation diagnostics.
 - Fortran kernels for performance-critical paths, compiled via `f2py`/Meson and shipped as prebuilt wheels.

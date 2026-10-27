@@ -111,15 +111,15 @@ PRESCRIPTIONS = [
     ("Calzetti00  Rv=4.05",
      dict(enabled=True, law="calzetti00",    a_v=TRUE_AV, r_v=4.05)),
 
-    # --- Gordon+2023 environments ---
+    # --- Gordon+2023 (Milky Way) and Gordon+2003 (Magellanic Clouds) ---
     ("Gordon+2023  MW",
      dict(enabled=True, law="gordon23",      a_v=TRUE_AV, gordon23_env="mw")),
 
-    ("Gordon+2023  LMC",
-     dict(enabled=True, law="gordon23",      a_v=TRUE_AV, gordon23_env="lmc")),
+    ("Gordon+2003  LMC average",
+     dict(enabled=True, law="g03_lmcavg",    a_v=TRUE_AV)),
 
-    ("Gordon+2023  SMC",
-     dict(enabled=True, law="gordon23",      a_v=TRUE_AV, gordon23_env="smc")),
+    ("Gordon+2003  SMC bar",
+     dict(enabled=True, law="g03_smcbar",    a_v=TRUE_AV)),
 
     # --- non-standard R_V ---
     ("Fitzpatrick99  Rv=2.5",

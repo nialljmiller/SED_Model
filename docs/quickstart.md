@@ -120,7 +120,7 @@ reddened = run_forward(
 )
 ```
 
-See the [Extinction guide](guide/extinction.md) for the six supported laws and the conventions used.
+See the [Extinction guide](guide/extinction.md) for the supported laws and the conventions used.
 
 ## Next steps
 

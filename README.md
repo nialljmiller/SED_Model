@@ -144,7 +144,7 @@ ext = make_extinction_model(enabled=True, law="fitzpatrick99", a_v=0.3, r_v=3.1)
 result = run_forward(..., extinction=ext)
 ```
 
-Laws: `ccm89`, `odonnell94`, `fitzpatrick99`, `fm07`, `calzetti00`, `gordon23`.
+Laws: `ccm89`, `odonnell94`, `fitzpatrick99` (R_V 2 to 6), `gordon23` (Milky Way, R_V 2.3 to 5.6), `fm07` (R_V = 3.1), `g03_smcbar` (R_V = 2.74), `g03_lmcavg` (R_V = 3.41) and `calzetti00`. They follow the MESA `colors` extinction module. An R_V outside a law's calibrated range raises `ValueError`; outside the fitted wavelength range k is held constant shortward and continues its functional form longward. Extinction reddens the filter magnitudes only: `bol_flux` and `bol_mag` are those of the intrinsic SED and the zero points are not reddened.
 
 ---
 
@@ -246,7 +246,7 @@ Cite SED_Model with [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this reposito
 - **MESA:** the Fortran kernels are ported from its `colors` module and keep its licence (LGPL-3.0-or-later). Please also cite MESA: Paxton et al. 2011, ApJS 192, 3; 2013, ApJS 208, 4; 2015, ApJS 220, 15; 2018, ApJS 234, 34; 2019, ApJS 243, 10; Jermyn et al. 2023, ApJS 265, 15.
 - **SED_Tools** produces the grids and filter files.
 - **emcee:** Foreman-Mackey et al. 2013, PASP 125, 306.
-- **Extinction laws**, re-implemented from the papers: Cardelli, Clayton & Mathis (1989), O'Donnell (1994), Fitzpatrick (1999), Fitzpatrick & Massa (2007), Calzetti et al. (2000), Gordon et al. (2023). References are in the [Extinction guide](https://nialljmiller.github.io/SED_Model/guide/extinction/).
+- **Extinction laws**, ported from the MESA `colors` extinction module (coefficients as in `dust_extinction`): Cardelli, Clayton & Mathis (1989), O'Donnell (1994), Fitzpatrick (1999), Fitzpatrick & Massa (2007), Gordon et al. (2003), Calzetti et al. (2000), Gordon et al. (2023). References are in the [Extinction guide](https://nialljmiller.github.io/SED_Model/guide/extinction/).
 - **Cross-checks:** [MSG](https://github.com/rhdtownsend/msg) and the MIST bolometric-correction tables (Choi et al. 2016, ApJ 823, 102; Dotter 2016, ApJS 222, 8).
 
 ## License

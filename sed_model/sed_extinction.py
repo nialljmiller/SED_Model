@@ -1,51 +1,56 @@
 """
 sed_extinction.py
 =================
-Standalone interstellar dust extinction module for SED fitting.
+Interstellar dust extinction for SED fitting, in pure NumPy.
 
-All extinction laws are implemented in pure NumPy — no compiled Cython
-dependency.  The numerical coefficients are taken directly from the
-``extinction`` package (Barbary 2016, which itself faithfully reproduces
-the original papers), plus a native implementation of Gordon et al. (2023).
+The laws are a NumPy port of the extinction module of the MESA ``colors``
+code (same structure, same building blocks, same handling outside each law's
+fitted range).  Coefficients follow the ``dust_extinction`` package (Gordon
+2024, JOSS, 9, 7023) and, for FM07, the ``extinction`` package (Barbary 2016).
+k = A(lambda)/A(V) agrees with the MESA module to about 1e-12.
 
 Usage
 -----
 Apply extinction to a spectrum before filter convolution::
 
-    from sed_extinction import ExtinctionModel
+    from sed_model import ExtinctionModel
 
-    ext = ExtinctionModel(law='fitzpatrick99', r_v=3.1, a_v=0.3)
+    ext = ExtinctionModel(law='fitzpatrick99', r_v=3.1, a_v=0.3, enabled=True)
     flux_obs = ext.apply(wavelength_aa, flux_intrinsic)
 
-Or use it purely as a forward-model modifier inside a fitter::
+Supported laws (config key; calibrated R_V range)
+-------------------------------------------------
+'ccm89'          Cardelli, Clayton & Mathis (1989) ApJ 345 245;  2 <= R_V <= 6
+'odonnell94'     O'Donnell (1994) ApJ 422 158 (CCM89, revised optical); 2 <= R_V <= 6
+'fitzpatrick99'  Fitzpatrick (1999) PASP 111 63;  2 <= R_V <= 6
+'fm07'           Fitzpatrick & Massa (2007) ApJ 663 320;  R_V = 3.1 fixed
+'gordon23'       Gordon et al. (2023) ApJ 950 86 (Milky Way);  2.3 <= R_V <= 5.6
+'g03_smcbar'     Gordon et al. (2003) ApJ 594 279, SMC bar;  R_V = 2.74 fixed
+'g03_lmcavg'     Gordon et al. (2003) ApJ 594 279, LMC average;  R_V = 3.41 fixed
+'calzetti00'     Calzetti et al. (2000) ApJ 533 682 (starburst attenuation);
+                 not in MESA
 
-    ext = ExtinctionModel(law='ccm89', r_v=3.1, a_v=0.0, enabled=False)
+Fixed-shape laws ignore ``r_v``.  For the R_V-dependent laws an R_V outside
+the calibrated range raises ``ValueError``.
 
-    # later, at evaluation time:
-    flux_obs = ext.apply(wave, flux)   # returns flux unchanged when disabled
-
-Supported laws
---------------
-'ccm89'          Cardelli, Clayton & Mathis (1989) ApJ 345 245
-'odonnell94'     O'Donnell (1994) ApJ 422 158  (CCM89 with revised optical)
-'fitzpatrick99'  Fitzpatrick (1999) PASP 111 63  (R_V-dependent spline)
-'fm07'           Fitzpatrick & Massa (2007) ApJ 663 320  (R_V = 3.1 fixed)
-'calzetti00'     Calzetti et al. (2000) ApJ 533 682  (starburst galaxies)
-'gordon23'       Gordon et al. (2023) ApJ 950 86   (piecewise, MW/SMC/LMC)
+Outside a law's fitted range, longward the law's own functional form is
+continued (each tends to zero as the wavelength goes to infinity); shortward,
+k is held at its value at the law's blue limit (CCM89, O94, F99, G03: 1000 A;
+FM07: 910 A; G23: 912 A), because the far-UV fits diverge beyond it.
 
 Convention
 ----------
-All wavelengths are in Angstroms.  Fluxes are in any linear unit
-(erg/s/cm²/Å, normalised, etc.) — only the ratio matters.
+All wavelengths are in Angstroms.  Fluxes are in any linear unit.  The
+extinction is applied as::
 
-The extinction is applied as:
-    F_obs(λ) = F_intrinsic(λ) × 10^(−0.4 × A(λ))
-where A(λ) = a_v × k(λ) and k(λ) is the normalised extinction curve
-returned by the chosen law.
+    F_obs(lambda) = F_intrinsic(lambda) * 10**(-0.4 * A_V * k(lambda))
+
+with k = A(lambda)/A(V) the normalised curve of the chosen law.
 """
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -54,6 +59,7 @@ import numpy as np
 __all__ = [
     "ExtinctionModel",
     "ExtinctionConfig",
+    "make_extinction_model",
     "apply_extinction",
     "remove_extinction",
     # individual law functions
@@ -63,7 +69,10 @@ __all__ = [
     "fm07",
     "calzetti00",
     "gordon23",
+    "g03_smcbar",
+    "g03_lmcavg",
     "AVAILABLE_LAWS",
+    "RV_RANGES",
 ]
 
 # ---------------------------------------------------------------------------
@@ -77,78 +86,343 @@ AVAILABLE_LAWS = (
     "fm07",
     "calzetti00",
     "gordon23",
+    "g03_smcbar",
+    "g03_lmcavg",
 )
+
+#: R_V range each R_V-dependent law was calibrated over.  Laws not listed
+#: (fm07, g03_smcbar, g03_lmcavg, calzetti00) do not validate R_V.
+RV_RANGES = {
+    "ccm89": (2.0, 6.0),
+    "odonnell94": (2.0, 6.0),
+    "fitzpatrick99": (2.0, 6.0),
+    "gordon23": (2.3, 5.6),
+}
+
+
+def _check_rv(law: str, r_v: float) -> None:
+    """Raise ValueError when r_v is outside the calibrated range of ``law``."""
+    rng = RV_RANGES.get(law)
+    if rng is None:
+        return
+    lo, hi = rng
+    if not (lo <= r_v <= hi):      # also rejects NaN
+        raise ValueError(
+            f"{law} is calibrated for {lo:g} <= R_V <= {hi:g}, got R_V = {r_v:g}"
+        )
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _aa_to_invum(wave_aa: np.ndarray) -> np.ndarray:
-    """Angstroms → inverse microns."""
-    return 1e4 / wave_aa
+_X_FUV = 1.0e4 / 910.0
+
+
+def _wave_to_x(wave) -> np.ndarray:
+    """Angstroms -> wavenumber in inverse microns.
+
+    A non-positive wavelength is sent to x = 1e4 (far-UV), where every law is
+    held constant, as in the MESA module.
+    """
+    wave = np.atleast_1d(np.asarray(wave, dtype=np.float64))
+    x = np.full(wave.shape, 1.0e4)
+    pos = wave > 0.0
+    x[pos] = 1.0e4 / wave[pos]
+    return x
+
+
+def _polynomial(c, y):
+    """sum of c[i] * y**i (Horner)."""
+    out = np.full_like(y, c[-1])
+    for ci in c[-2::-1]:
+        out = out * y + ci
+    return out
+
+
+def _smoothstep(v, lo, hi):
+    t = np.clip((v - lo) / (hi - lo), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _drude(x, amp, x0, fwhm):
+    return amp * (fwhm / x0) ** 2 / ((x / x0 - x0 / x) ** 2 + (fwhm / x0) ** 2)
+
+
+def _modified_drude(x, amp, x0, fwhm, asym):
+    return _drude(x, amp, x0, 2.0 * fwhm / (1.0 + np.exp(asym * (x - x0))))
+
+
+def _fm90(x, c):
+    """Fitzpatrick & Massa (1990) UV curve E(x-V)/E(B-V); c = [c1..c4, x0, gamma]."""
+    x = np.asarray(x, dtype=np.float64)
+    out = c[0] + c[1] * x + c[2] * x**2 / ((x**2 - c[4]**2) ** 2 + (x * c[5]) ** 2)
+    y = np.maximum(x - 5.9, 0.0)
+    return out + np.where(x >= 5.9, c[3] * (0.5392 * y**2 + 0.05644 * y**3), 0.0)
+
+
+def _natural_spline(xs, ys):
+    """Second derivatives of the natural cubic spline through (xs, ys)."""
+    n = len(xs)
+    m = np.zeros(n)
+    c = np.zeros(n)
+    r = np.zeros(n)
+    for i in range(1, n - 1):
+        h_lo = xs[i] - xs[i - 1]
+        h_hi = xs[i + 1] - xs[i]
+        w = 2.0 * (h_lo + h_hi) - h_lo * c[i - 1]
+        c[i] = h_hi / w
+        r[i] = (6.0 * ((ys[i + 1] - ys[i]) / h_hi - (ys[i] - ys[i - 1]) / h_lo)
+                - h_lo * r[i - 1]) / w
+    for i in range(n - 2, 0, -1):
+        m[i] = r[i] - c[i] * m[i + 1]
+    return m
+
+
+def _spline_value(xs, ys, m, x):
+    """Value at x of the cubic spline with knots (xs, ys) and second derivatives m.
+
+    Outside the knots the end cubic is extended."""
+    j = np.searchsorted(xs[1:-1], x, side="left")
+    h = xs[j + 1] - xs[j]
+    t_lo = xs[j + 1] - x
+    t_hi = x - xs[j]
+    return ((m[j] * t_lo**3 + m[j + 1] * t_hi**3) / (6.0 * h)
+            + (ys[j] / h - m[j] * h / 6.0) * t_lo
+            + (ys[j + 1] / h - m[j + 1] * h / 6.0) * t_hi)
 
 
 # ---------------------------------------------------------------------------
-# CCM89  (Cardelli, Clayton & Mathis 1989)
+# Building blocks shared by the laws.  All take x = 1/lambda [um^-1] and
+# return k = A(lambda)/A(V).
 # ---------------------------------------------------------------------------
 
-def _ccm89_ab(x: np.ndarray):
-    """Return (a, b) arrays for CCM89 at x in inverse microns."""
-    a = np.zeros_like(x)
-    b = np.zeros_like(x)
+def _cardelli_form(x, r_v, opt_a, opt_b):
+    """k = a(x) + b(x)/R_V in the CCM89 form with the given optical polynomials."""
+    xi = np.minimum(x, 10.0)
+    a = np.empty_like(xi)
+    b = np.empty_like(xi)
 
-    # IR: 0.3 <= x < 1.1
-    m = (x >= 0.3) & (x < 1.1)
-    if m.any():
-        y = x[m] ** 1.61
-        a[m] = 0.574 * y
-        b[m] = -0.527 * y
+    m = xi < 1.1                                  # infrared power law
+    p = xi[m] ** 1.61
+    a[m] = 0.574 * p
+    b[m] = -0.527 * p
 
-    # Optical: 1.1 <= x < 3.3
-    m = (x >= 1.1) & (x < 3.3)
-    if m.any():
-        y = x[m] - 1.82
-        a[m] = (((((( 0.329990*y - 0.77530)*y + 0.01979)*y + 0.72085)*y
-                  - 0.02427)*y - 0.50447)*y + 0.17699)*y + 1.0
-        b[m] = ((((((-2.09002*y + 5.30260)*y - 0.62251)*y - 5.38434)*y
-                   + 1.07233)*y + 2.28305)*y + 1.41338)*y
+    m = (xi >= 1.1) & (xi < 3.3)                  # optical
+    y = xi[m] - 1.82
+    a[m] = _polynomial(opt_a, y)
+    b[m] = _polynomial(opt_b, y)
 
-    # UV: 3.3 <= x < 8.0
-    m = (x >= 3.3) & (x < 8.0)
-    if m.any():
-        xm = x[m]
-        ya = xm - 4.67
-        am = 1.752 - 0.316*xm - (0.104 / (ya*ya + 0.341))
-        yb = xm - 4.62
-        bm = -3.090 + 1.825*xm + (1.206 / (yb*yb + 0.263))
-        m2 = xm > 5.9
-        if m2.any():
-            y2 = xm[m2] - 5.9
-            am[m2] += -0.04473*y2**2 - 0.009779*y2**3
-            bm[m2] +=  0.2130*y2**2  + 0.1207*y2**3
-        a[m] = am
-        b[m] = bm
+    m = (xi >= 3.3) & (xi <= 8.0)                 # near-UV
+    xm = xi[m]
+    am = 1.752 - 0.316 * xm - 0.104 / ((xm - 4.67) ** 2 + 0.341)
+    bm = -3.090 + 1.825 * xm + 1.206 / ((xm - 4.62) ** 2 + 0.263)
+    y = np.maximum(xm - 5.9, 0.0)                 # extra curvature above x = 5.9
+    hi = xm >= 5.9
+    am = am + np.where(hi, -0.04473 * y**2 - 0.009779 * y**3, 0.0)
+    bm = bm + np.where(hi, 0.2130 * y**2 + 0.1207 * y**3, 0.0)
+    a[m] = am
+    b[m] = bm
 
-    # FUV: 8.0 <= x <= 11.0
-    m = (x >= 8.0) & (x <= 11.0)
-    if m.any():
-        y  = x[m] - 8.0
-        y2 = y**2
-        y3 = y**3
-        a[m] = -0.070*y3 + 0.137*y2 - 0.628*y - 1.073
-        b[m] =  0.374*y3 - 0.420*y2 + 4.257*y + 13.670
+    m = xi > 8.0                                  # far-UV
+    y = xi[m] - 8.0
+    a[m] = -1.073 - 0.628 * y + 0.137 * y**2 - 0.070 * y**3
+    b[m] = 13.670 + 4.257 * y - 0.420 * y**2 + 0.374 * y**3
 
+    return a + b / r_v
+
+
+def _f99_form(x, r_v, fm90_c, knot_x, knot_k):
+    """The F99 construction: FM90 shortward of 2700 A, longward a natural cubic
+    spline through k = 0 at x = 0, the optical/IR anchors (knot_x, knot_k) and
+    the FM90 curve at 2700 and 2600 A.  FM90 gives E(x-V)/E(B-V), so
+    k = 1 + FM90/R_V."""
+    x_uv = 1.0e4 / 2700.0
+    x_uv2 = 1.0e4 / 2600.0
+    sx = np.concatenate(([0.0], knot_x, [x_uv, x_uv2]))
+    sk = np.concatenate(([0.0], knot_k,
+                         [1.0 + _fm90(x_uv, fm90_c) / r_v, 1.0 + _fm90(x_uv2, fm90_c) / r_v]))
+    m = _natural_spline(sx, sk)
+
+    xi = np.minimum(x, 10.0)
+    k = np.empty_like(xi)
+    uv = xi >= x_uv
+    k[uv] = 1.0 + _fm90(xi[uv], fm90_c) / r_v
+    k[~uv] = _spline_value(sx, sk, m, xi[~uv])
+    return k
+
+
+# ---------------------------------------------------------------------------
+# Laws: k(x, ...) for the Milky Way and Magellanic Cloud curves
+# ---------------------------------------------------------------------------
+
+_CCM89_A = [1.0, 0.17699, -0.50447, -0.02427, 0.72085, 0.01979, -0.77530, 0.32999]
+_CCM89_B = [0.0, 1.41338, 2.28305, 1.07233, -5.38434, -0.62251, 5.30260, -2.09002]
+
+_O94_A = [1.0, 0.104, -0.609, 0.701, 1.137, -1.718, -0.827, 1.647, -0.505]
+_O94_B = [0.0, 1.952, 2.908, -3.989, -7.985, 11.102, 5.491, -10.805, 3.347]
+
+
+def _k_ccm89(x, r_v):
+    return _cardelli_form(x, r_v, _CCM89_A, _CCM89_B)
+
+
+def _k_o94(x, r_v):
+    return _cardelli_form(x, r_v, _O94_A, _O94_B)
+
+
+_F99_KNOT_LAMBDA = np.array([26500.0, 12200.0, 6000.0, 5470.0, 4670.0, 4110.0])
+
+
+def _k_f99(x, r_v):
+    # A(lambda)/E(B-V) at the anchors (the last optical anchor uses +1.208,
+    # which reproduces F99 table 3; table 4 prints -1.208)
+    knot_k = np.empty(6)
+    knot_k[0:2] = np.array([0.265, 0.829]) * r_v / 3.1
+    knot_k[2] = -0.426 + 1.0044 * r_v
+    knot_k[3] = -0.050 + 1.0016 * r_v
+    knot_k[4] = 0.701 + 1.0016 * r_v
+    knot_k[5] = 1.208 + 1.0032 * r_v - 0.00033 * r_v**2
+    c2 = -0.824 + 4.717 / r_v
+    return _f99_form(x, r_v, [2.030 - 3.007 * c2, c2, 3.23, 0.41, 4.596, 0.99],
+                     1.0e4 / _F99_KNOT_LAMBDA, knot_k / r_v)
+
+
+def _fm07_uv(xu):
+    xu = np.asarray(xu, dtype=np.float64)
+    out = (-0.175 + 0.807 * xu
+           + 2.991 * xu**2 / ((xu**2 - 4.592**2) ** 2 + (0.922 * xu) ** 2))
+    return out + np.where(xu > 6.097, 0.319 * (xu - 6.097) ** 2, 0.0)
+
+
+_FM07_R_V = 3.1
+_FM07_X_UV = 1.0e4 / 2700.0
+_FM07_SX = np.array([0.0, 0.25, 0.50, 0.75, 1.0, 1.0e4 / 5530.0, 1.0e4 / 4000.0,
+                     1.0e4 / 3300.0, 1.0e4 / 2700.0, 1.0e4 / 2600.0])
+_FM07_SK = np.concatenate((
+    (0.63 * _FM07_R_V - 0.83) * _FM07_SX[:5] ** 1.84 - _FM07_R_V,
+    [0.0, 1.322, 2.055],
+    [float(_fm07_uv(_FM07_SX[8])), float(_fm07_uv(_FM07_SX[9]))],
+))
+_FM07_M = _natural_spline(_FM07_SX, _FM07_SK)
+
+
+def _k_fm07(x):
+    """FM07 average Milky Way curve, fixed at R_V = 3.1; FM90 in the UV with a
+    quadratic far-UV rise above x = 6.097, a natural cubic spline in
+    E(x-V)/E(B-V) longward of 2700 A."""
+    xi = np.minimum(x, _X_FUV)
+    k = np.empty_like(xi)
+    uv = xi >= _FM07_X_UV
+    k[uv] = 1.0 + _fm07_uv(xi[uv]) / _FM07_R_V
+    k[~uv] = 1.0 + _spline_value(_FM07_SX, _FM07_SK, _FM07_M, xi[~uv]) / _FM07_R_V
+    return k
+
+
+def _g23_ir(x):
+    """G23 near/mid-IR: a is a power law with a smooth break near 4.3 micron
+    plus the two silicate features, b a single power law."""
+    scale, alpha1, alpha2 = 0.38526, 1.68467, 0.78791
+    break_lam, break_width = 4.30578, 4.78338
+    lam = 1.0 / x
+    w = _smoothstep(lam, break_lam - 0.5 * break_width, break_lam + 0.5 * break_width)
+    a = (scale * ((1.0 - w) * lam ** (-alpha1)
+                  + w * break_lam ** (alpha2 - alpha1) * lam ** (-alpha2))
+         + _modified_drude(lam, 0.06652, 9.8434, 2.21205, -0.24703)
+         + _modified_drude(lam, 0.0267, 19.58294, 17.0, -0.27))
+    b = -1.01251 * x**1.06099
     return a, b
+
+
+def _g23_optical(x):
+    """G23 optical: quartic in x plus three intermediate-scale (Drude) features."""
+    a = (_polynomial([-0.35848, 0.7122, 0.08746, -0.05403, 0.00674], x)
+         + _drude(x, 0.03893, 2.288, 0.243)
+         + _drude(x, 0.02965, 2.054, 0.179)
+         + _drude(x, 0.01747, 1.587, 0.243))
+    b = (_polynomial([0.12354, -2.68335, 2.01901, -0.39299, 0.03355], x)
+         + _drude(x, 0.18453, 2.288, 0.243)
+         + _drude(x, 0.19728, 2.054, 0.179)
+         + _drude(x, 0.1713, 1.587, 0.243))
+    return a, b
+
+
+def _g23_uv(x):
+    """G23 ultraviolet: FM90 curves for a and b."""
+    a = _fm90(x, [0.81297, 0.2775, 1.06295, 0.11303, 4.60, 0.99])
+    b = _fm90(x, [-2.97868, 1.89808, 3.10334, 0.65484, 4.60, 0.99])
+    return a, b
+
+
+def _k_g23(x, r_v):
+    """G23 (Milky Way, R_V dependent); fitted for 0.0912 <= lambda <= 32 micron.
+    Optical blends into the IR over 0.9-1.1 micron and the UV into the optical
+    over 0.30-0.33 micron.  The 1/0.9854 renormalisation corrects the F19
+    photometry to the HST/STIS spectrophotometry."""
+    xi = np.minimum(x, 1.0 / 0.0912)
+    lam = 1.0 / xi
+    a = np.empty_like(xi)
+    b = np.empty_like(xi)
+
+    m = lam > 1.1
+    a[m], b[m] = _g23_ir(xi[m])
+
+    m = (lam >= 0.9) & (lam <= 1.1)
+    a1, b1 = _g23_optical(xi[m])
+    a2, b2 = _g23_ir(xi[m])
+    w = _smoothstep(lam[m], 0.9, 1.1)
+    a[m] = (1.0 - w) * a1 + w * a2
+    b[m] = (1.0 - w) * b1 + w * b2
+
+    m = (lam > 0.33) & (lam < 0.9)
+    a[m], b[m] = _g23_optical(xi[m])
+
+    m = (lam >= 0.3) & (lam <= 0.33)
+    a1, b1 = _g23_uv(xi[m])
+    a2, b2 = _g23_optical(xi[m])
+    w = _smoothstep(lam[m], 0.3, 0.33)
+    a[m] = (1.0 - w) * a1 + w * a2
+    b[m] = (1.0 - w) * b1 + w * b2
+
+    m = lam < 0.3
+    a[m], b[m] = _g23_uv(xi[m])
+
+    return (a + b * (1.0 / r_v - 1.0 / 3.1)) / 0.9854
+
+
+def _k_g03_smcbar(x):
+    """Gordon et al. (2003) SMC bar average, R_V = 2.74."""
+    return _f99_form(x, 2.74, [-4.959, 2.264, 0.389, 0.461, 4.6, 1.0],
+                     1.0 / np.array([2.198, 1.65, 1.25, 0.81, 0.65, 0.55, 0.44, 0.37]),
+                     np.array([0.110, 0.169, 0.250, 0.567, 0.801, 1.000, 1.374, 1.672]))
+
+
+def _k_g03_lmcavg(x):
+    """Gordon et al. (2003) LMC average, R_V = 3.41."""
+    return _f99_form(x, 3.41, [-0.890, 0.998, 2.719, 0.400, 4.579, 0.934],
+                     1.0 / np.array([2.198, 1.65, 1.25, 0.55, 0.44, 0.37]),
+                     np.array([0.100, 0.186, 0.257, 1.000, 1.293, 1.518]))
+
+
+# ---------------------------------------------------------------------------
+# Public law functions: A(lambda) in magnitudes
+# ---------------------------------------------------------------------------
+
+def _shape(wave, k):
+    return k if np.ndim(wave) else k[0]
 
 
 def ccm89(wave: np.ndarray, a_v: float, r_v: float = 3.1) -> np.ndarray:
     """Cardelli, Clayton & Mathis (1989) extinction in magnitudes.
 
+    Fitted for 1000 A to 3.3 micron (0.3 <= x <= 10 um^-1).  Shortward of
+    1000 A k is held at its 1000 A value; longward the infrared power law
+    continues.  Requires 2 <= R_V <= 6 (``ValueError`` otherwise).
+
     Parameters
     ----------
     wave : array_like
-        Wavelengths in Angstroms.  Valid range: ~910–33 000 Å.
+        Wavelengths in Angstroms.
     a_v : float
         V-band extinction in magnitudes.
     r_v : float
@@ -159,38 +433,20 @@ def ccm89(wave: np.ndarray, a_v: float, r_v: float = 3.1) -> np.ndarray:
     A_lambda : ndarray
         Extinction in magnitudes at each wavelength.
     """
-    wave = np.asarray(wave, dtype=np.float64)
-    x = _aa_to_invum(wave)
-    a, b = _ccm89_ab(x)
-    return a_v * (a + b / r_v)
-
-
-# ---------------------------------------------------------------------------
-# O'Donnell (1994)  — CCM89 with updated optical coefficients
-# ---------------------------------------------------------------------------
-
-def _od94_ab(x: np.ndarray):
-    """Return (a, b) arrays for O'Donnell (1994) at x in inverse microns."""
-    a, b = _ccm89_ab(x)
-
-    m = (x >= 1.1) & (x < 3.3)
-    if m.any():
-        y = x[m] - 1.82
-        a[m] = (((((((-0.505*y + 1.647)*y - 0.827)*y - 1.718)*y + 1.137)*y
-                   + 0.701)*y - 0.609)*y + 0.104)*y + 1.0
-        b[m] = (((((((3.347*y - 10.805)*y + 5.491)*y + 11.102)*y - 7.985)*y
-                   - 3.989)*y + 2.908)*y + 1.952)*y
-
-    return a, b
+    _check_rv("ccm89", r_v)
+    return _shape(wave, a_v * _k_ccm89(_wave_to_x(wave), r_v))
 
 
 def odonnell94(wave: np.ndarray, a_v: float, r_v: float = 3.1) -> np.ndarray:
-    """O'Donnell (1994) extinction — CCM89 with revised optical coefficients.
+    """O'Donnell (1994) extinction: CCM89 with a refitted optical section.
+
+    Same fitted range and out-of-range behaviour as :func:`ccm89`.
+    Requires 2 <= R_V <= 6 (``ValueError`` otherwise).
 
     Parameters
     ----------
     wave : array_like
-        Wavelengths in Angstroms.  Valid range: ~910–33 000 Å.
+        Wavelengths in Angstroms.
     a_v : float
         V-band extinction in magnitudes.
     r_v : float
@@ -201,95 +457,23 @@ def odonnell94(wave: np.ndarray, a_v: float, r_v: float = 3.1) -> np.ndarray:
     A_lambda : ndarray
         Extinction in magnitudes at each wavelength.
     """
-    wave = np.asarray(wave, dtype=np.float64)
-    x = _aa_to_invum(wave)
-    a, b = _od94_ab(x)
-    return a_v * (a + b / r_v)
-
-
-# ---------------------------------------------------------------------------
-# Fitzpatrick (1999)  — R_V-dependent cubic spline
-# ---------------------------------------------------------------------------
-
-_F99_XKNOTS = np.array([0.0,
-                         1e4/26500., 1e4/12200., 1e4/6000.,
-                         1e4/5470.,  1e4/4670.,  1e4/4110.,
-                         1e4/2700.,  1e4/2600.])
-
-_F99_X0    = 4.596
-_F99_GAMMA = 0.99
-_F99_C3    = 3.23
-_F99_C4    = 0.41
-_F99_C5    = 5.9
-
-
-def _f99_kknots(r_v: float) -> np.ndarray:
-    """Compute the k-value knots for Fitzpatrick (1999) at a given R_V."""
-    c2  = -0.824 + 4.717 / r_v
-    c1  =  2.030 - 3.007 * c2
-    rv2 = r_v * r_v
-    k   = np.empty(9)
-    x   = _F99_XKNOTS
-
-    k[0] = -r_v
-    k[1] = 0.26469 * r_v / 3.1 - r_v
-    k[2] = 0.82925 * r_v / 3.1 - r_v
-    k[3] = -0.422809 + 1.00270*r_v + 2.13572e-04*rv2 - r_v
-    k[4] = -5.13540e-02 + 1.00216*r_v - 7.35778e-05*rv2 - r_v
-    k[5] =  0.700127 + 1.00184*r_v - 3.32598e-05*rv2 - r_v
-    k[6] = (1.19456 + 1.01707*r_v - 5.46959e-03*rv2
-            + 7.97809e-04*rv2*r_v - 4.45636e-05*rv2**2 - r_v)
-    for i in (7, 8):
-        xi  = x[i]
-        xi2 = xi**2
-        d   = xi2 / ((xi2 - _F99_X0**2)**2 + xi2 * _F99_GAMMA**2)
-        k[i] = c1 + c2*xi + _F99_C3*d
-    return k
-
-
-def _solve_spline_M(x_knots: np.ndarray, y_knots: np.ndarray) -> np.ndarray:
-    """Solve for the natural cubic spline second-derivative vector M."""
-    n   = len(x_knots)
-    h   = np.diff(x_knots)
-    A   = np.zeros((n, n))
-    rhs = np.zeros(n)
-    A[0, 0] = 1.0
-    A[-1, -1] = 1.0
-    for i in range(1, n - 1):
-        A[i, i-1] = h[i-1]
-        A[i, i]   = 2.0 * (h[i-1] + h[i])
-        A[i, i+1] = h[i]
-        rhs[i]    = 3.0 * ((y_knots[i+1] - y_knots[i]) / h[i]
-                             - (y_knots[i] - y_knots[i-1]) / h[i-1])
-    return np.linalg.solve(A, rhs)
-
-
-def _eval_spline(x_knots: np.ndarray, y_knots: np.ndarray,
-                 M: np.ndarray, x_eval: np.ndarray) -> np.ndarray:
-    """Vectorised evaluation of a natural cubic spline given pre-solved M."""
-    h   = np.diff(x_knots)
-    idx = np.searchsorted(x_knots, x_eval, side='right') - 1
-    idx = np.clip(idx, 0, len(x_knots) - 2)
-    dx  = x_eval - x_knots[idx]
-    hi  = h[idx]
-    a   = y_knots[idx]
-    b   = (y_knots[idx + 1] - y_knots[idx]) / hi - hi * (2.0*M[idx] + M[idx+1]) / 3.0
-    c   = M[idx]
-    d   = (M[idx + 1] - M[idx]) / (3.0 * hi)
-    return a + b*dx + c*dx**2 + d*dx**3
+    _check_rv("odonnell94", r_v)
+    return _shape(wave, a_v * _k_o94(_wave_to_x(wave), r_v))
 
 
 def fitzpatrick99(wave: np.ndarray, a_v: float, r_v: float = 3.1) -> np.ndarray:
-    """Fitzpatrick (1999) R_V-dependent dust extinction.
+    """Fitzpatrick (1999) R_V-dependent extinction.
 
-    Optical/IR: cubic spline through the Fitzpatrick (1999) knots updated
-    by E. Fitzpatrick to match the IDL astrolib FM_UNRED routine.
-    UV (< 2700 Å): analytic Fitzpatrick & Massa (1990) parametrization.
+    FM90 in the UV (shortward of 2700 A); longward a natural cubic spline
+    through the optical/IR anchors used by the ``dust_extinction`` package.
+    Fitted for 1000 A to 3.3 micron; shortward of 1000 A k is held at its
+    1000 A value, longward the spline continues.  Requires 2 <= R_V <= 6
+    (``ValueError`` otherwise).
 
     Parameters
     ----------
     wave : array_like
-        Wavelengths in Angstroms.  Valid range: 910–60 000 Å.
+        Wavelengths in Angstroms.
     a_v : float
         V-band extinction in magnitudes.
     r_v : float
@@ -300,81 +484,15 @@ def fitzpatrick99(wave: np.ndarray, a_v: float, r_v: float = 3.1) -> np.ndarray:
     A_lambda : ndarray
         Extinction in magnitudes at each wavelength.
     """
-    wave  = np.asarray(wave, dtype=np.float64)
-    x     = _aa_to_invum(wave)
-    k_knots = _f99_kknots(r_v)
-    M       = _solve_spline_M(_F99_XKNOTS, k_knots)
-
-    opt_mask = x <= _F99_XKNOTS[7]
-    uv_mask  = ~opt_mask
-
-    result = np.empty_like(x)
-
-    if opt_mask.any():
-        k_opt = _eval_spline(_F99_XKNOTS, k_knots, M, x[opt_mask])
-        result[opt_mask] = a_v / r_v * (k_opt + r_v)
-
-    if uv_mask.any():
-        xm  = x[uv_mask]
-        c2  = -0.824 + 4.717 / r_v
-        c1  =  2.030 - 3.007 * c2
-        xm2 = xm**2
-        d   = xm2 / ((xm2 - _F99_X0**2)**2 + xm2 * _F99_GAMMA**2)
-        k   = c1 + c2*xm + _F99_C3*d
-        bump = xm >= _F99_C5
-        if bump.any():
-            y = xm[bump] - _F99_C5
-            k[bump] += _F99_C4*(0.5392*y**2 + 0.05644*y**3)
-        result[uv_mask] = a_v * (1.0 + k/r_v)
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Fitzpatrick & Massa (2007)
-# ---------------------------------------------------------------------------
-
-_FM07_R_V   = 3.1
-_FM07_X0    = 4.592
-_FM07_GAMMA = 0.922
-_FM07_C1    = -0.175
-_FM07_C2    =  0.807
-_FM07_C3    =  2.991
-_FM07_C4    =  0.319
-_FM07_C5    =  6.097
-_FM07_X02   = _FM07_X0**2
-_FM07_G2    = _FM07_GAMMA**2
-
-_FM07_XKNOTS = np.array([0., 0.25, 0.50, 0.75, 1.,
-                           1e4/5530., 1e4/4000., 1e4/3300.,
-                           1e4/2700., 1e4/2600.])
-
-
-def _fm07_kknots() -> np.ndarray:
-    x = _FM07_XKNOTS
-    k = np.empty(10)
-    for i in range(5):
-        k[i] = (-0.83 + 0.63*_FM07_R_V)*x[i]**1.84 - _FM07_R_V
-    k[5] = 0.0
-    k[6] = 1.322
-    k[7] = 2.055
-    for i in (8, 9):
-        xi2 = x[i]**2
-        d   = xi2 / ((xi2 - _FM07_X02)**2 + xi2*_FM07_G2)
-        k[i] = _FM07_C1 + _FM07_C2*x[i] + _FM07_C3*d
-    return k
-
-
-# Pre-compute FM07 knot values and spline M-vector at import time — the
-# knots are module-level constants so this solve is done exactly once.
-_FM07_KKNOTS = _fm07_kknots()
-_FM07_SPLINE_M = _solve_spline_M(_FM07_XKNOTS, _FM07_KKNOTS)
+    _check_rv("fitzpatrick99", r_v)
+    return _shape(wave, a_v * _k_f99(_wave_to_x(wave), r_v))
 
 
 def fm07(wave: np.ndarray, a_v: float) -> np.ndarray:
-    """Fitzpatrick & Massa (2007) extinction (R_V = 3.1 fixed).
+    """Fitzpatrick & Massa (2007) average Milky Way extinction (R_V = 3.1 fixed).
 
-    Defined from 910 Å to 6 µm.
+    Fitted from 910 A to 6 micron; shortward of 910 A k is held at its 910 A
+    value, longward the spline continues.
 
     Parameters
     ----------
@@ -388,31 +506,39 @@ def fm07(wave: np.ndarray, a_v: float) -> np.ndarray:
     A_lambda : ndarray
         Extinction in magnitudes at each wavelength.
     """
-    wave  = np.asarray(wave, dtype=np.float64)
-    x     = _aa_to_invum(wave)
-    ebv   = a_v / _FM07_R_V
+    return _shape(wave, a_v * _k_fm07(_wave_to_x(wave)))
 
-    opt_mask = x <= _FM07_XKNOTS[8]
-    uv_mask  = ~opt_mask
 
-    result = np.empty_like(x)
+def g03_smcbar(wave: np.ndarray, a_v: float) -> np.ndarray:
+    """Gordon et al. (2003) SMC bar average extinction (R_V = 2.74 fixed).
 
-    if opt_mask.any():
-        k_opt = _eval_spline(_FM07_XKNOTS, _FM07_KKNOTS, _FM07_SPLINE_M, x[opt_mask])
-        result[opt_mask] = ebv * (k_opt + _FM07_R_V)
+    Fitted for 1000 A to 3.3 micron (0.3 <= x <= 10 um^-1); shortward of
+    1000 A k is held at its 1000 A value.
 
-    if uv_mask.any():
-        xm   = x[uv_mask]
-        xm2  = xm**2
-        d    = xm2 / ((xm2 - _FM07_X02)**2 + xm2*_FM07_G2)
-        k    = _FM07_C1 + _FM07_C2*xm + _FM07_C3*d
-        bump = xm > _FM07_C5
-        if bump.any():
-            y = xm[bump] - _FM07_C5
-            k[bump] += _FM07_C4*y**2
-        result[uv_mask] = a_v * (1.0 + k/_FM07_R_V)
+    Parameters
+    ----------
+    wave : array_like
+        Wavelengths in Angstroms.
+    a_v : float
+        V-band extinction in magnitudes.
+    """
+    return _shape(wave, a_v * _k_g03_smcbar(_wave_to_x(wave)))
 
-    return result
+
+def g03_lmcavg(wave: np.ndarray, a_v: float) -> np.ndarray:
+    """Gordon et al. (2003) LMC average extinction (R_V = 3.41 fixed).
+
+    Fitted for 1000 A to 3.3 micron (0.3 <= x <= 10 um^-1); shortward of
+    1000 A k is held at its 1000 A value.
+
+    Parameters
+    ----------
+    wave : array_like
+        Wavelengths in Angstroms.
+    a_v : float
+        V-band extinction in magnitudes.
+    """
+    return _shape(wave, a_v * _k_g03_lmcavg(_wave_to_x(wave)))
 
 
 # ---------------------------------------------------------------------------
@@ -458,15 +584,15 @@ def calzetti00(wave: np.ndarray, a_v: float, r_v: float = 4.05) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Gordon et al. (2023)  — native implementation
+# Gordon et al. (2023)
 # ---------------------------------------------------------------------------
 
-_G23_PARAMS = {
-    'mw': dict(
-        c1=-0.890, c2=0.998, c3=2.719, c4=0.400, c5=5.7,
-        x0=4.592, gamma=0.922, r_v=3.17,
-        c6=0.300, alpha=1.84,
-    ),
+# Parameters of the earlier-version 'lmc' and 'smc' environments.  They are an
+# FM90-style curve in the UV with a c6 * x**1.84 - R_V power law longward of
+# 3 micron; they are not taken from G23 (which publishes only the Milky Way
+# R_V-dependent relation) and are kept unchanged for compatibility.  They
+# could not be checked against any reference implementation.
+_G23_LEGACY_PARAMS = {
     'lmc': dict(
         c1=-1.475, c2=1.132, c3=1.463, c4=0.294, c5=5.9,
         x0=4.558, gamma=0.945, r_v=3.41,
@@ -479,13 +605,56 @@ _G23_PARAMS = {
     ),
 }
 
+_G23_ENVIRONMENTS = ('mw', 'lmc', 'smc')
+
+
+def _gordon23_legacy(wave, a_v, rv, env):
+    """Pre-0.5 'lmc'/'smc' curves (see ``_G23_LEGACY_PARAMS``); returns A in mag."""
+    p = _G23_LEGACY_PARAMS[env]
+    c1, c2, c3, c4, c5 = p['c1'], p['c2'], p['c3'], p['c4'], p['c5']
+    x0, gamma = p['x0'], p['gamma']
+    c6, alpha = p['c6'], p['alpha']
+    if rv is None:
+        rv = p['r_v']
+
+    x = 1e4 / np.asarray(wave, dtype=np.float64)
+    k = np.zeros_like(x)
+
+    ir_mask = x < (1.0 / 3.0)
+    if ir_mask.any():
+        k[ir_mask] = c6 * x[ir_mask]**alpha - rv
+
+    opt_uv_mask = ~ir_mask
+    if opt_uv_mask.any():
+        xm = x[opt_uv_mask]
+        xm2 = xm**2
+        d = xm2 / ((xm2 - x0**2)**2 + xm2 * gamma**2)
+        k_uv = c1 + c2*xm + c3*d
+        fuv = xm > c5
+        if fuv.any():
+            y = xm[fuv] - c5
+            k_uv[fuv] += c4*(0.5392*y**2 + 0.05644*y**3)
+        k[opt_uv_mask] = k_uv
+
+    return a_v / rv * (k + rv)
+
 
 def gordon23(wave: np.ndarray, a_v: float, r_v: Optional[float] = None,
              environment: str = 'mw') -> np.ndarray:
     """Gordon et al. (2023) dust extinction law.
 
-    Native implementation of the piecewise FM-style law from
-    Gordon, K. D. et al. 2023, ApJ, 950, 86.
+    ``environment='mw'`` (default) is the Milky Way R_V-dependent relation of
+    Gordon, K. D. et al. 2023, ApJ, 950, 86, ported from the MESA ``colors``
+    module.  It is fitted for 912 A to 32 micron, including the 10 and 20
+    micron silicate features; shortward of 912 A k is held at its 912 A value,
+    longward of 32 micron the power laws continue.  Requires
+    2.3 <= R_V <= 5.6 (``ValueError`` otherwise).
+
+    ``environment='lmc'`` and ``'smc'`` select the older curves this package
+    used in earlier versions; they are not part of G23, not in MESA, and could not be
+    verified against any reference, so they emit a ``UserWarning`` and R_V is
+    not range-checked.  For the Magellanic Clouds use :func:`g03_lmcavg` and
+    :func:`g03_smcbar`, which follow Gordon et al. (2003) and are validated.
 
     Parameters
     ----------
@@ -494,10 +663,10 @@ def gordon23(wave: np.ndarray, a_v: float, r_v: Optional[float] = None,
     a_v : float
         V-band extinction in magnitudes.
     r_v : float or None
-        Total-to-selective extinction ratio.  If None, the environment
-        default from Gordon+2023 is used (MW: 3.17, LMC: 3.41, SMC: 2.74).
+        Total-to-selective extinction ratio.  None means 3.1 for 'mw' and the
+        environment default (LMC 3.41, SMC 2.74) for the older curves.
     environment : {'mw', 'lmc', 'smc'}
-        Which average extinction curve to use (default 'mw').
+        Which curve to use (default 'mw').
 
     Returns
     -------
@@ -505,40 +674,24 @@ def gordon23(wave: np.ndarray, a_v: float, r_v: Optional[float] = None,
         Extinction in magnitudes at each wavelength.
     """
     env = environment.lower()
-    if env not in _G23_PARAMS:
-        raise ValueError(f"environment must be one of {list(_G23_PARAMS)}; got '{env}'")
+    if env not in _G23_ENVIRONMENTS:
+        raise ValueError(
+            f"environment must be one of {list(_G23_ENVIRONMENTS)}; got '{env}'")
 
-    p   = _G23_PARAMS[env]
-    c1, c2, c3, c4, c5 = p['c1'], p['c2'], p['c3'], p['c4'], p['c5']
-    x0, gamma           = p['x0'], p['gamma']
-    c6, alpha           = p['c6'], p['alpha']
-    rv  = r_v if r_v is not None else p['r_v']
+    if env == 'mw':
+        rv = 3.1 if r_v is None else float(r_v)
+        _check_rv("gordon23", rv)
+        return _shape(wave, a_v * _k_g23(_wave_to_x(wave), rv))
 
+    warnings.warn(
+        f"gordon23 environment '{env}' is the earlier-version curve, which is not part of "
+        "Gordon et al. (2023) and could not be verified against a reference; use "
+        f"law='{'g03_lmcavg' if env == 'lmc' else 'g03_smcbar'}' for the Gordon "
+        "et al. (2003) curve.",
+        UserWarning, stacklevel=2,
+    )
     wave = np.asarray(wave, dtype=np.float64)
-    x    = _aa_to_invum(wave)
-    k    = np.zeros_like(x)
-
-    ir_mask = x < (1.0 / 3.0)
-    if ir_mask.any():
-        k[ir_mask] = c6 * x[ir_mask]**alpha - rv
-
-    opt_uv_mask = ~ir_mask
-    if opt_uv_mask.any():
-        xm  = x[opt_uv_mask]
-        xm2 = xm**2
-        g2  = gamma**2
-        x02 = x0**2
-        d   = xm2 / ((xm2 - x02)**2 + xm2*g2)
-        k_uv = c1 + c2*xm + c3*d
-
-        fuv = xm > c5
-        if fuv.any():
-            y = xm[fuv] - c5
-            k_uv[fuv] += c4*(0.5392*y**2 + 0.05644*y**3)
-
-        k[opt_uv_mask] = k_uv
-
-    return a_v / rv * (k + rv)
+    return _gordon23_legacy(wave, a_v, r_v, env)
 
 
 # ---------------------------------------------------------------------------
@@ -600,12 +753,16 @@ class ExtinctionConfig:
     law : str
         Name of the extinction law.  One of ``AVAILABLE_LAWS``.
     r_v : float
-        R_V value (ignored by 'fm07' which fixes R_V = 3.1,
-        and by 'calzetti00' which uses its own R_V = 4.05 unless overridden).
+        R_V value.  Ignored by the fixed-shape laws 'fm07' (3.1),
+        'g03_smcbar' (2.74) and 'g03_lmcavg' (3.41).  For 'ccm89',
+        'odonnell94', 'fitzpatrick99' (2 to 6) and 'gordon23' with
+        environment 'mw' (2.3 to 5.6) a value outside the calibrated range
+        raises ``ValueError``.  'calzetti00' is not range-checked.
     a_v : float
         V-band extinction in magnitudes.  Default 0.0.
     gordon23_env : str
-        Only used when ``law='gordon23'``.  One of 'mw', 'lmc', 'smc'.
+        Only used when ``law='gordon23'``.  One of 'mw', 'lmc', 'smc'
+        ('lmc' and 'smc' are unverified older curves, see :func:`gordon23`).
     """
     enabled: bool      = False
     law: str           = 'fitzpatrick99'
@@ -621,6 +778,9 @@ class ExtinctionConfig:
             )
         if self.a_v < 0.0:
             raise ValueError("a_v must be >= 0")
+        if self.law == 'gordon23' and str(self.gordon23_env).lower() != 'mw':
+            return
+        _check_rv(self.law, self.r_v)
 
 
 # ---------------------------------------------------------------------------
@@ -633,9 +793,12 @@ _LAW_DISPATCH = {
     'fitzpatrick99': lambda w, av, rv, env: fitzpatrick99(w, av, rv),
     'fm07':          lambda w, av, rv, env: fm07(w, av),
     'calzetti00':    lambda w, av, rv, env: calzetti00(w, av, rv),
-    # Pass rv=None when the user left r_v at the generic default (3.1) so
-    # gordon23 uses its own environment-specific R_V instead of 3.1.
-    'gordon23':      lambda w, av, rv, env: gordon23(w, av, None if rv == 3.1 else rv, env),
+    'g03_smcbar':    lambda w, av, rv, env: g03_smcbar(w, av),
+    'g03_lmcavg':    lambda w, av, rv, env: g03_lmcavg(w, av),
+    # For the older 'lmc'/'smc' curves, pass rv=None when r_v was left at the
+    # generic default (3.1) so they use their own R_V, as before.
+    'gordon23':      lambda w, av, rv, env: gordon23(
+        w, av, rv if str(env).lower() == 'mw' or rv != 3.1 else None, env),
 }
 
 

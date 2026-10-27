@@ -7,13 +7,13 @@ The forward model maps stellar parameters to an observer-frame SED and synthetic
 ```text
 (Teff, logg, [M/H])  →  SED interpolation   (Fortran, bounded Hermite, Hermite or linear)
                      →  distance dilution    (Fortran, (R/d)²)
+                     →  bolometric           (Fortran, intrinsic SED)
                      →  extinction           (Python, optional)
-                     →  bolometric           (Fortran)
                      →  filter convolution   (Fortran, per filter)
                      →  ForwardResult
 ```
 
-Extinction is applied **after** dilution and **before** filter convolution — physically: star → distance → dust column → telescope → filter.
+Extinction is applied **after** dilution and **before** filter convolution — physically: star → distance → dust column → telescope → filter. The bolometric flux and magnitude are computed **before** extinction, from the intrinsic SED (as in MESA colors); only the filter magnitudes and band fluxes are reddened.
 
 ## Two calling conventions
 
@@ -81,7 +81,7 @@ The `nearest_grid_distance` diagnostic (distance in normalised parameter space f
 | `observed_flux` | after `(R/d)²` dilution and any extinction |
 | `magnitudes` | `{filter_name: magnitude}` in the requested system |
 | `band_fluxes` | `{filter_name: in-band flux}` (erg/s/cm²/Å) |
-| `bol_flux`, `bol_mag` | bolometric flux and magnitude (`Mag_bol = -2.5 log10(F_bol / F_bol,0)`, where `F_bol,0` is the IAU 2015 B2 irradiance of an `M_bol = 0` source, so the Sun at 10 pc has `M_bol = 4.74`; samples with a non-finite or negative flux are zeroed before integrating) |
+| `bol_flux`, `bol_mag` | bolometric flux and magnitude of the intrinsic (unreddened) SED (`Mag_bol = -2.5 log10(F_bol / F_bol,0)`, where `F_bol,0` is the IAU 2015 B2 irradiance of an `M_bol = 0` source, so the Sun at 10 pc has `M_bol = 4.74`; samples with a non-finite or negative flux are zeroed before integrating) |
 | `nearest_grid_distance`, `clamped` | interpolation diagnostics: distance to the nearest tabulated model, and whether the query was clamped or an interpolation failed |
 | `teff`, `logg`, `meta`, `R`, `d`, `a_v` | the parameters that produced this result (self-describing) |
 | `mag_system`, `extinction_applied` | bookkeeping |

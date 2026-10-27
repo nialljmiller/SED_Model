@@ -1,5 +1,40 @@
 # Changelog
 
+## [Unreleased]
+
+The extinction laws are now a NumPy port of the extinction module of the MESA
+`colors` code. Per law, k = A(lambda)/A(V) agrees with the MESA module to
+about 1e-12 (CCM89, O94, F99, FM07, G23, G03 SMC bar, G03 LMC average).
+
+- **Behaviour change: the bolometric flux and magnitude are intrinsic.**
+  `run_forward` computed `bol_flux`/`bol_mag` from the reddened SED, so any
+  `a_v > 0` made the star fainter in `bol_mag`. They are now computed before
+  extinction, as in MESA colors; only the filter magnitudes and band fluxes
+  are reddened, and the zero points are not. The inverse fit only uses band
+  magnitudes and is unaffected.
+- **Fixed: `gordon23` was wrong outside the UV.** The old code used an
+  FM90-style curve with an ad hoc power law, so at 5500 A it gave
+  k = 1.31 instead of 1.00 and at 2.2 micron 0.86 instead of 0.10 (the UV
+  matched). `gordon23` (`gordon23_env="mw"`) is now the G23 Milky Way
+  relation (UV, optical, IR with the silicate features, R_V dependent).
+  The default R_V is 3.1 (it was 3.17). The `"lmc"` and `"smc"`
+  environments are not part of G23 and could not be verified; they keep
+  their old code path, emit a `UserWarning`, and should be replaced by the
+  two new laws below.
+- **New laws:** `g03_smcbar` (Gordon et al. 2003, SMC bar, R_V = 2.74) and
+  `g03_lmcavg` (Gordon et al. 2003, LMC average, R_V = 3.41). Both ignore `r_v`.
+- **R_V validation.** `ExtinctionConfig` and the law functions raise
+  `ValueError` for R_V outside the calibrated range: 2 to 6 for `ccm89`,
+  `odonnell94` and `fitzpatrick99`; 2.3 to 5.6 for `gordon23` (Milky Way).
+  `fm07` and the G03 laws ignore R_V. Previously any R_V was accepted.
+- **`fitzpatrick99` knots changed (about 1e-4 in k inside the fitted range).**
+  The spline anchors are those of the `dust_extinction` package (as in MESA)
+  instead of the older IDL-derived values.
+- **Outside the fitted range** (CCM89, O94, F99, FM07, G03, G23): shortward of
+  the blue limit k is now held at its blue-limit value (1000 A; 910 A for
+  FM07; 912 A for G23) instead of the far-UV fit continuing or being set to
+  zero; longward the law's own functional form continues to zero.
+
 ## [0.4.5] — 2026-10-25
 
 Documentation and tests only; no change to the package code or results.
