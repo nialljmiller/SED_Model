@@ -7,7 +7,7 @@ authors:
   - family-names: "Miller"
     given-names: "Niall"
     email: "niall.j.miller@gmail.com"
-version: "0.4.5"
+version: "0.4.6"
 repository-code: "https://github.com/nialljmiller/SED_Model"
 url: "https://nialljmiller.github.io/SED_Model/"
 license:

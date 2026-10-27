@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.6] — 2026-10-27
 
 The extinction laws are now a NumPy port of the extinction module of the MESA
 `colors` code. Per law, k = A(lambda)/A(V) agrees with the MESA module to
