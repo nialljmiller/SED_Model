@@ -7,8 +7,8 @@ Pipeline
 --------
   (Teff, logg, [M/H])  →  SED interpolation  (Fortran, bounded Hermite, Hermite or linear)
                        →  distance dilution   (Fortran, (R/d)²)
+                       →  bolometric          (Fortran, intrinsic SED)
                        →  extinction          (Python, optional, sed_extinction)
-                       →  bolometric          (Fortran)
                        →  filter convolution  (Fortran, per filter)
                        →  ForwardResult
 
@@ -71,6 +71,13 @@ class ForwardResult:
 
     Attributes
     ----------
+    observed_flux : ndarray
+        Flux after distance dilution and, if enabled, extinction.
+    bol_flux, bol_mag : float
+        Bolometric flux and magnitude of the INTRINSIC (diluted, unreddened)
+        SED.  Extinction changes ``observed_flux``, ``band_fluxes`` and
+        ``magnitudes`` only; the bolometric quantities and the magnitude
+        zero points are never reddened (as in MESA colors).
     nearest_grid_distance : float
         Euclidean distance in normalised parameter space from the nearest
         grid point (mirrors the MESA ``Interp_rad`` diagnostic).  Zero for
@@ -262,7 +269,16 @@ def run_forward(
     observed_flux = cc.dilute_flux(surface_flux, float(R), d_use)
 
     # ------------------------------------------------------------------
-    # 3. Extinction (Python, optional)
+    # 3. Bolometric quantities (Fortran), from the INTRINSIC (diluted,
+    #    unreddened) SED, as in MESA colors: interstellar extinction
+    #    reddens only the filter magnitudes.
+    # ------------------------------------------------------------------
+    bol_flux, bol_mag, bol_ierr = cc.bolometric(grid.wavelengths, observed_flux)
+    if bol_ierr != 0:
+        clamped = True
+
+    # ------------------------------------------------------------------
+    # 4. Extinction (Python, optional)
     #
     # Applied AFTER dilution, BEFORE filter convolution.
     # When Av is a free parameter, rebuild the ExtinctionModel with the
@@ -276,13 +292,6 @@ def run_forward(
         observed_flux      = extinction.apply(grid.wavelengths, observed_flux)
         extinction_applied = True
         av                 = extinction.config.a_v
-
-    # ------------------------------------------------------------------
-    # 4. Bolometric quantities (Fortran)
-    # ------------------------------------------------------------------
-    bol_flux, bol_mag, bol_ierr = cc.bolometric(grid.wavelengths, observed_flux)
-    if bol_ierr != 0:
-        clamped = True
 
     # ------------------------------------------------------------------
     # 5. Synthetic photometry per filter (Fortran)
