@@ -10,6 +10,12 @@ SED_Model is a Python package for computing observer-ready synthetic spectral en
 
 Current version: **0.4.6** ([PyPI](https://pypi.org/project/sed-model/))
 
+<video controls loop muted playsinline width="100%" poster="assets/gallery/sed_fit_still.png">
+  <source src="assets/gallery/sed_fit.mp4" type="video/mp4">
+</video>
+
+*A run_inverse fit of UBVRI + JHKs photometry. Each curve is one walker's model SED, coloured by its own Teff; the right panel is the same walkers in the Teff–log g plane.*
+
 ## Two paired models, one parameter language
 
 - **Forward model** — maps `(Teff, logg, [M/H], R, d)` to an interpolated SED, bolometric flux and magnitude, and synthetic magnitudes in any set of loaded filters.

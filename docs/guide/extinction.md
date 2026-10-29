@@ -19,6 +19,10 @@ The laws are a NumPy port of the extinction module of the MESA `colors` code and
 
 `calzetti00` is not in MESA and is unchanged. The tuple `sed_model.AVAILABLE_LAWS` lists the keys programmatically.
 
+![A(lambda)/A(V) for the extinction laws](../assets/gallery/extinction_laws.png)
+
+*A(λ)/A(V) for the laws: the effect of R_V, the Milky Way laws at R_V = 3.1, and the Magellanic and starburst laws.*
+
 ### \(R_V\)
 
 - `fm07`, `g03_smcbar` and `g03_lmcavg` have a fixed shape and ignore `r_v`.
@@ -54,6 +58,16 @@ deredden  = ext.remove(wavelengths, flux)     # F · 10^(+0.4 A)
 A disabled model (`enabled=False`, or `make_extinction_model()` with no arguments) passes flux through unchanged — so you can keep a single code path and toggle extinction by configuration.
 
 In the forward model, pass the model via `run_forward(..., extinction=ext)`; it is applied after distance dilution and before filter convolution. `bol_flux` and `bol_mag` in the result are those of the unreddened SED.
+
+<video controls loop muted playsinline width="100%">
+  <source src="../assets/gallery/dust.mp4" type="video/mp4">
+</video>
+
+*A 7000 K star reddened by A_V from 0 to 3 with the Fitzpatrick (1999) law.*
+
+![Reddening vectors in the U-B, B-V plane](../assets/gallery/reddening_vectors.png)
+
+*A_V = 1 under three laws, from a 9000 K star.*
 
 ## Extinction in the inverse fit
 

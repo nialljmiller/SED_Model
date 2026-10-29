@@ -81,6 +81,7 @@ nav:
       - Results and I/O: guide/results-io.md
   - Demonstrations:
       - Overview: demos/index.md
+      - Gallery: demos/gallery.md
       - Forward Model Demo: demos/forward.md
       - Inverse Model Demo: demos/inverse.md
       - Parameter Modes Demo: demos/param-modes.md

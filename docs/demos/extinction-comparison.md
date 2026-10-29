@@ -8,6 +8,12 @@ The output figure `extinction_comparison.png` shows median ± 1σ per prescripti
 
 Concepts demonstrated: [the extinction module](../guide/extinction.md), `make_extinction_model`, fixed-Av fitting under a deliberately wrong law.
 
+<video controls loop muted playsinline width="100%">
+  <source src="../assets/gallery/dust.mp4" type="video/mp4">
+</video>
+
+*From the gallery: a star reddened by A_V from 0 to 3.*
+
 ## Source
 
 ```python

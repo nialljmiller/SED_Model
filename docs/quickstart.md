@@ -100,6 +100,10 @@ posterior = run_inverse(
 )
 ```
 
+![Walkers of an MCMC fit converging on the photometry](assets/gallery/sed_fit_still.png)
+
+*Walker model SEDs part-way through a fit: the data are the orange points. See the [gallery](demos/gallery.md).*
+
 ## Add extinction to the forward model
 
 ```python
@@ -121,6 +125,10 @@ reddened = run_forward(
 ```
 
 See the [Extinction guide](guide/extinction.md) for the supported laws and the conventions used.
+
+![Reddening vectors in the U-B, B-V plane](assets/gallery/reddening_vectors.png)
+
+*A_V = 1 under three laws, from a 9000 K star.*
 
 ## Next steps
 

@@ -15,6 +15,12 @@ The forward model maps stellar parameters to an observer-frame SED and synthetic
 
 Extinction is applied **after** dilution and **before** filter convolution — physically: star → distance → dust column → telescope → filter. The bolometric flux and magnitude are computed **before** extinction, from the intrinsic SED (as in MESA colors); only the filter magnitudes and band fluxes are reddened.
 
+<video controls loop muted playsinline width="100%">
+  <source src="../assets/gallery/star_heating.mp4" type="video/mp4">
+</video>
+
+*run_forward from 3500 K to 30000 K at fixed radius: the SED, the Johnson filter fluxes and the star's B−V, M_V track.*
+
 ## Two calling conventions
 
 ### Classic
@@ -59,6 +65,14 @@ Three schemes operate on the 3D `(Teff, logg, [M/H])` flux cube, vectorised over
 
 If the query point falls outside the grid, it is clamped to the grid boundary and the result is flagged (`clamped=True`). `clamped` is also set when the bolometric flux is not positive, or when plain `hermite` reports an interpolation error. It is not set by `linear` filling a few wavelength bins from the nearest node, and `hermite_bounded` raises instead of flagging when it has no usable SED.
 
+![Hermite interpolation between two grid nodes](../assets/gallery/between_nodes.png)
+
+*The default hermite_bounded SED between the 13 000 K and 14 000 K nodes.*
+
+![Hermite and linear interpolation across grid cells](../assets/gallery/hermite_vs_linear.png)
+
+*Linear interpolation has a kink in dV/dTeff at every node; hermite_bounded does not.*
+
 ### Empty grid cells
 
 A grid directory holds a full rectangular `(Teff, logg, [M/H])` cube, but not every node has a model. For `Kurucz2003all` about 40 % of the cube is empty, mostly the hot, low-gravity corners. Empty nodes are stored as all-zero spectra, and interpolating through them gives unreliable results.
@@ -97,6 +111,10 @@ m = -2.5 \log_{10}\!\left( F_{\rm band} / F_{zp} \right)
 \]
 
 with the zero-point \(F_{zp}\) precomputed per filter and system at load time ([Grids and Filters](grids-and-filters.md#zero-points)). Failed integrations or non-positive fluxes produce a non-zero error flag rather than crashing: band magnitudes become `NaN` in `ForwardResult.magnitudes`, and the bolometric magnitude is `99.0` (MESA's value) when the integrated flux is not positive.
+
+![Colour-magnitude lines of constant gravity](../assets/gallery/cmd_grid.png)
+
+*B−V against M_V along lines of constant log g (1 M☉ at each), in star colours.*
 
 ## Batch evaluation
 
