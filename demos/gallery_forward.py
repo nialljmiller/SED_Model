@@ -15,13 +15,14 @@ populated, so the forward model never emits the empty-cell warning; warnings are
 turned into errors so a regression would be loud rather than silent.
 
     python demos/gallery_forward.py            # full render
-    python demos/gallery_forward.py --quick    # fewer frames, fast check
+    python demos/gallery_forward.py --quick    # fewer frames, written to a temp dir
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
 import time
 import warnings
 from pathlib import Path
@@ -300,6 +301,8 @@ def main():
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--only", choices=["movie", "cmd", "between"])
     args = ap.parse_args()
+    if args.quick:
+        print("quick run, written to", vc.set_output_dir(tempfile.mkdtemp(prefix="gallery_quick_")))
     t0 = time.time()
     warnings.simplefilter("error", UserWarning)      # an empty-cell warning must be loud
     grid, filters = load_all()

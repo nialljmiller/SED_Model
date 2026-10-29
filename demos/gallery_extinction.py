@@ -12,7 +12,7 @@ Writes to ``docs/assets/gallery/``:
 Usage::
 
     python demos/gallery_extinction.py            # full quality
-    python demos/gallery_extinction.py --quick    # fast test (short movie, 640x360 look-alike)
+    python demos/gallery_extinction.py --quick    # fast test, written to a temp dir
 
 Needs the SED_Tools Kurucz2003all grid, the Johnson filters and the Vega SED
 (see ``viz_common.data_paths``) and ffmpeg for the movie.
@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
 import warnings
 from pathlib import Path
 
@@ -376,6 +377,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true", help="short movie, sparse star sweep")
     args = ap.parse_args()
+    if args.quick:
+        print("quick run, written to", vc.set_output_dir(tempfile.mkdtemp(prefix="gallery_quick_")))
     paths = vc.require_data()
     grid, filters = load_all(paths)
     print(make_laws())

@@ -42,6 +42,14 @@ ORANGE = "#d95926"     # data / observed
 AQUA = "#199e70"       # third series
 
 ASSETS = Path(__file__).resolve().parent.parent / "docs" / "assets" / "gallery"
+_override: Path | None = None
+
+
+def set_output_dir(path) -> Path:
+    """Send every later ``save_still`` / ``save_movie`` to ``path`` (used by ``--quick``)."""
+    global _override
+    _override = Path(path)
+    return _override
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +181,7 @@ def require_data() -> dict[str, str]:
 
 def save_still(fig, name: str, outdir: Path | None = None) -> Path:
     """Save ``fig`` as ``<outdir>/<name>.png`` (default ``docs/assets/gallery``)."""
-    outdir = Path(outdir or ASSETS)
+    outdir = Path(outdir or _override or ASSETS)
     outdir.mkdir(parents=True, exist_ok=True)
     path = outdir / f"{name}.png"
     fig.savefig(path, facecolor=SURFACE)
@@ -196,7 +204,7 @@ def save_movie(fig, update, n_frames: int, name: str, fps: int = 30,
     temporary directory and encoded with ffmpeg: H.264 MP4 (yuv420p, plays
     everywhere) and a palette-optimised GIF at ``gif_width`` pixels for READMEs.
     """
-    outdir = Path(outdir or ASSETS)
+    outdir = Path(outdir or _override or ASSETS)
     outdir.mkdir(parents=True, exist_ok=True)
     ff = _ffmpeg()
     written: list[Path] = []
