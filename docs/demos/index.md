@@ -6,6 +6,7 @@ All demos follow the same pattern: paths to SED_Tools data products are configur
 
 | Demo | What it shows |
 |---|---|
+| [Gallery](gallery.md) | movies and plots: a live fit, a star heating up, dust, the grid, the posterior |
 | [Forward Model Demo](forward.md) | parameters → SED + synthetic magnitudes, with an annotated SED plot |
 | [Inverse Model Demo](inverse.md) | magnitudes → posterior on `(Teff, logg, [M/H])`, with corner and trace plots |
 | [Parameter Modes Demo](param-modes.md) | the same data fitted under four fixed/bounded/free configurations |

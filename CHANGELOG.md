@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+Documentation, demos and tests only.
+
+- Gallery: four scripts (`demos/gallery_fit.py`, `gallery_forward.py`,
+  `gallery_extinction.py`, `gallery_grid.py`) that make movies and plots from the
+  package: a live MCMC fit, a star heating up, interstellar reddening, a walk
+  through the atmosphere grid, a posterior corner plot and Hermite versus linear
+  interpolation. The shared look is in `demos/viz_common.py`. Output is in
+  `docs/assets/gallery/` and is shown in the README and the documentation.
+- `tests/test_gallery.py` runs each gallery script in its quick mode.
+
 ## [0.4.6] — 2026-10-27
 
 The extinction laws are now a NumPy port of the extinction module of the MESA

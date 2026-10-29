@@ -8,6 +8,11 @@ SED_Model computes synthetic spectral energy distributions and broadband magnitu
 
 Version `0.4.6` · [Documentation](https://nialljmiller.github.io/SED_Model/) · [Changelog](CHANGELOG.md)
 
+<p align="center">
+  <a href="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/sed_fit.mp4"><img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/sed_fit.gif" alt="An MCMC fit of a star: model SEDs from walkers coloured by their own temperature collapse onto the observed photometry" width="720"/></a>
+</p>
+<p align="center"><sub>A <code>run_inverse</code> fit of UBVRI + JHKs photometry. Each curve is one walker's model SED, coloured by its own Teff. <a href="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/sed_fit.mp4">MP4</a></sub></p>
+
 ---
 
 ## What it does
@@ -194,6 +199,23 @@ params = FitParams(
 ```
 
 `fit_params_from_grid(grid, a_v=(0.0, 2.0), d_cm=3.086e19)` builds the same object from the grid bounds.
+
+---
+
+## Gallery
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/star_heating.gif" alt="A star heated from 3500 to 30000 K: its SED, filter fluxes and colour-magnitude track"/><br/><sub>Heating a star, 3500 – 30000 K</sub></td>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/dust.gif" alt="A star reddened by increasing dust"/><br/><sub>Dust: A<sub>V</sub> from 0 to 3</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/grid_walk.gif" alt="A path through the atmosphere grid, avoiding the empty region"/><br/><sub>A walk through the atmosphere grid</sub></td>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/posterior_corner.png" alt="Posterior corner plot"/><br/><sub>The posterior of a fit</sub></td>
+  </tr>
+</table>
+
+Each one is made by a script in `demos/` (`gallery_*.py`) from real grids and filters. More plots and the full-size movies are in the [gallery](https://nialljmiller.github.io/SED_Model/demos/gallery/).
 
 ---
 
