@@ -106,7 +106,8 @@ def make_movie(grid, filters, quick):
     law, r_v = "fitzpatrick99", 3.1
     n = 36 if quick else 330
     a_peak = 3.0
-    a_v = 0.5 * a_peak * (1 - np.cos(2 * np.pi * np.arange(n) / n))   # 0 -> 3 -> 0, loops
+    u = 1 - abs(2 * np.arange(n) / n - 1)                       # triangle 0 -> 1 -> 0, loops
+    a_v = a_peak * (0.65 * u + 0.35 * u * u * (3 - 2 * u))      # short dwell at both ends
 
     base = forward(grid, filters, teff, logg, rad)
     wave = base.wavelengths
@@ -151,19 +152,21 @@ def make_movie(grid, filters, quick):
     axc = fig.add_axes([0.73, 0.20, 0.24, 0.72])
 
     ax.set_xlim(0.28, 1.05)
-    ax.set_ylim(0, 1.0)
+    ax.set_yscale('log')
+    ax.set_ylim(4e-4, 1.5)
     ax.set_yticks([])
     ax.spines["left"].set_visible(False)
     ax.set_xticks([0.4, 0.6, 0.8, 1.0])
     ax.set_xticklabels(["0.4", "0.6", "0.8", "1.0 µm"])
     ax.plot(w_um, ghost, color=vc.INK_3, lw=1.1, zorder=2)
-    ax.fill_between(w_um, 0, ghost, color=vc.INK_3, alpha=0.12, lw=0, zorder=1)
+    ax.fill_between(w_um, 1e-5, ghost, color=vc.INK_3, alpha=0.12, lw=0, zorder=1)
     ax.set_ylabel("flux", labelpad=4)
     counter = ax.text(0.02, 0.95, "", transform=ax.transAxes, color=vc.INK_2, fontsize=17,
                       va="top", ha="left")
     disc = ax.scatter([0.93], [0.88], s=520, zorder=5, lw=0)
     halo = ax.scatter([0.93], [0.88], s=1800, zorder=4, lw=0, alpha=0.12)
-    (line,) = ax.plot(w_um, ghost, lw=2.0, zorder=4)
+    (glow,) = ax.plot(w_um, ghost, lw=8, alpha=0.18, zorder=3, solid_capstyle='round')
+    (line,) = ax.plot(w_um, ghost, lw=2.8, zorder=4)
     state = {"fill": None}
 
     axs.set_ylim(0, 1)
@@ -208,9 +211,11 @@ def make_movie(grid, filters, quick):
         a = a_v[i]
         line.set_color(col)
         line.set_ydata(flux)
+        glow.set_ydata(flux)
+        glow.set_color(col)
         if state["fill"] is not None:
             state["fill"].remove()
-        state["fill"] = ax.fill_between(w_um, 0, flux, color=col, alpha=0.28, lw=0, zorder=3)
+        state["fill"] = ax.fill_between(w_um, 1e-5, flux, color=col, alpha=0.28, lw=0, zorder=3)
         for p, d in zip(strips, dim):
             p.set_facecolor(mix(col, vc.SURFACE, 0.12 + 0.88 * d ** 0.6))
         counter.set_text(f"A$_V$  {a:.1f}")
@@ -278,7 +283,7 @@ def make_laws():
     ax = axes[0]
     ys = {rv: k("fitzpatrick99", rv) for rv in (2.5, 3.1, 5.0)}
     draw(ax, [(ys[2.5], B, "", 0, 0, 2.2), (ys[3.1], O, "", 0, 0, 2.2), (ys[5.0], A, "", 0, 0, 2.2)],
-         "Milky Way: how much the total-to-selective ratio matters")
+         "R$_V$ dependence")
     note(ax, "R$_V$ 2.5", B, (0.245, 3.95), 0.19, ys[2.5], leader=False)
     note(ax, "R$_V$ 3.1", O, (0.245, 3.2), 0.19, ys[3.1], leader=False)
     note(ax, "R$_V$ 5.0", A, (0.115, 1.0), 0.16, ys[5.0])
@@ -292,7 +297,7 @@ def make_laws():
     y_o94, y_fm = k("odonnell94"), k("fm07", lo=0.0911, hi=6.0)
     draw(ax, [(y_o94, G, "", 0, 0, 1.4), (y_fm, G, "", 0, 0, 1.4),
               (y_f99, B, "", 0, 0, 2.2), (y_ccm, O, "", 0, 0, 2.2), (y_g23, A, "", 0, 0, 2.2)],
-         "Milky Way: six parametrisations at R$_V$ 3.1")
+         "Milky Way laws at R$_V$ 3.1")
     note(ax, "Gordon 23", A, (0.30, 4.6), 0.2175, y_g23)
     note(ax, "CCM 89", O, (0.30, 4.1), 0.2175, y_ccm)
     note(ax, "Fitzpatrick 99", B, (0.30, 3.6), 0.2175, y_f99)
@@ -304,10 +309,10 @@ def make_laws():
     y_cal = k("calzetti00", 4.05, lo=0.12, hi=2.2)
     draw(ax, [(y_f99, G, "", 0, 0, 1.4), (y_smc, B, "", 0, 0, 2.2), (y_lmc, O, "", 0, 0, 2.2),
               (y_cal, A, "", 0, 0, 2.2)],
-         "Magellanic Clouds and starburst galaxies")
+         "Magellanic and starburst")
     note(ax, "SMC bar", B, (0.17, 5.4), 0.145, y_smc, leader=False)
     note(ax, "LMC average", O, (0.27, 3.85), 0.2175, y_lmc)
-    note(ax, "Calzetti 00", A, (0.125, 1.0), 0.15, y_cal)
+    note(ax, "Calzetti 00", A, (0.6, 2.3), 1.0, y_cal)
     ax.text(0.86, 5.05, "Milky Way F99\n(grey, for scale)", color=G, fontsize=11, ha="left", va="center")
 
     for a in axes:
