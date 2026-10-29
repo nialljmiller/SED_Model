@@ -109,21 +109,18 @@ def make_movie(grid, filters, quick):
     vc.apply_style()
     fig = vc.new_figure(1280, 720)
     ax = fig.add_axes([0.07, 0.13, 0.62, 0.78])
-    axc = fig.add_axes([0.775, 0.30, 0.19, 0.46])
+    axc = fig.add_axes([0.765, 0.17, 0.215, 0.66])
 
     # --- main panel ---------------------------------------------------------
     ax.set_xscale("log")
-    ax.set_yscale("log")
     ax.set_xlim(110, 2200)
-    ymax = peak.max() * 2.5
-    ymin = peak.min() / 10 ** 1.0
-    ax.set_ylim(ymin, ymax)
+    ax.set_ylim(-0.2, 1.15)          # each SED is normalised to its own peak; zero sits above the band lane
     ax.set_xticks([200, 400, 700, 1000, 2000])
     ax.set_xticklabels(["200", "400", "700", "1000", "2000"])
     ax.minorticks_off()
     ax.set_yticks([])
     ax.set_xlabel("wavelength (nm)")
-    ax.set_ylabel("flux at 10 pc")
+    ax.set_ylabel("relative flux")
 
     bandfill = {}
     ref = grid.wavelength if hasattr(grid, "wavelength") else None
@@ -131,15 +128,17 @@ def make_movie(grid, filters, quick):
         wv = f.wavelengths / 10.0
         tr = f.transmission / f.transmission.max()
         pv = np.sum(wv * tr) / np.sum(tr)
-        poly = ax.fill_between(wv, 0, 0.15 * tr, transform=ax.get_xaxis_transform(),
+        poly = ax.fill_between(wv, 0, 0.12 * tr, transform=ax.get_xaxis_transform(),
                                color=vc.INK, alpha=0.05, lw=0, zorder=1)
-        ax.plot(wv, 0.15 * tr, transform=ax.get_xaxis_transform(), color=vc.INK_3, lw=0.6, zorder=1)
-        ax.text(pv, 0.015, f.name, transform=ax.get_xaxis_transform(), color=vc.INK_2,
+        ax.plot(wv, 0.12 * tr, transform=ax.get_xaxis_transform(), color=vc.INK_3, lw=0.6, zorder=1)
+        ax.text(pv, 0.012, f.name, transform=ax.get_xaxis_transform(), color=vc.INK_2,
                 ha="center", va="bottom", fontsize=10)
         bandfill[f.name] = poly
 
     w0, y0 = lamflam(res[0])
+    y0 = y0 / y0[(w0 > 110) & (w0 < 2200)].max()
     arts = glow(ax, w0, y0, vc.star_color(T_LO))
+    under = [ax.fill_between(w0, 0, y0, color="w", alpha=0.0, lw=0)]
     counter = ax.text(0.02, 0.95, "", transform=ax.transAxes, color=vc.INK_2, fontsize=14,
                       va="top", ha="left")
 
@@ -166,6 +165,9 @@ def make_movie(grid, filters, quick):
         r = fwd(grid, filters, t)
         c = vc.star_color(t)
         x, y = lamflam(r)
+        y = y / y[(x > 110) & (x < 2200)].max()
+        under[0].remove()
+        under[0] = ax.fill_between(x, 0, y, color=c, alpha=0.10, lw=0, zorder=2)
         for k, a in enumerate(arts):
             a.set_data(x, y)
             a.set_color(lighten(c, 0.25) if k == 3 else c)
@@ -236,6 +238,10 @@ def make_cmd(grid, filters):
 def make_between(grid, filters):
     import matplotlib.pyplot as plt
 
+    def lf(r):
+        x, y = lamflam(r)
+        return x, y * 1e5
+
     lg = 4.5
     t0, t1 = 13000.0, 14000.0                    # adjacent Teff nodes, populated cell
     assert t0 in grid.teff_grid and t1 in grid.teff_grid
@@ -250,10 +256,10 @@ def make_between(grid, filters):
 
     def draw(a):
         for r in (A, B):
-            x, y = lamflam(r)
+            x, y = lf(r)
             a.plot(x, y, color=vc.INK_2, lw=0.9, alpha=0.5, zorder=2)
         for r, main in zip(mids, (False, True, False)):
-            x, y = lamflam(r)
+            x, y = lf(r)
             c = vc.star_color(r.teff)
             if main:
                 for w, al in ((9, 0.06), (5, 0.12), (2.6, 0.25)):
@@ -269,12 +275,11 @@ def make_between(grid, filters):
     ax.set_xticks([200, 400, 700, 1000]); ax.set_xticklabels(["200", "400", "700", "1000"])
     ax.minorticks_off()
     ax.set_xlabel("wavelength (nm)")
-    ax.set_ylabel("flux at 10 pc  ($\\lambda F_\\lambda$)")
-    ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+    ax.set_ylabel("flux at 10 pc  ($\\lambda F_\\lambda$, $10^{-5}$ cgs)")
     ax.axvspan(*win, color=vc.INK, alpha=0.06, lw=0, zorder=0)
 
     draw(zx)
-    sl = [lamflam(r) for r in (A, B, *mids)]
+    sl = [lf(r) for r in (A, B, *mids)]
     inwin = [y[(x > win[0]) & (x < win[1])] for x, y in sl]
     lo, hi = min(v.min() for v in inwin), max(v.max() for v in inwin)
     zx.set_xlim(*win)
@@ -284,7 +289,7 @@ def make_between(grid, filters):
     # direct labels at the right edge of the zoom, no legend box
     for r, txt, col in ((A, "13 000 K node", vc.INK_2), (mids[1], "13 500 K  Hermite", lighten(vc.star_color(13500), 0.25)),
                         (B, "14 000 K node", vc.INK_2)):
-        x, y = lamflam(r)
+        x, y = lf(r)
         zx.annotate(txt, (win[1], y[np.argmin(abs(x - win[1]))]), xytext=(6, 0),
                     textcoords="offset points", color=col, fontsize=10, va="center", annotation_clip=False)
     return vc.save_still(fig, "between_nodes")
