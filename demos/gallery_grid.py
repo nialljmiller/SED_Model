@@ -111,12 +111,12 @@ def path_through_grid(grid, n_frames: int) -> np.ndarray:
         [np.log10(4100.0), 1.9, -1.6],
         [np.log10(4900.0), 3.2, -0.9],
         [np.log10(5778.0), 4.44, 0.0],
-        [np.log10(7300.0), 4.05, 0.2],
-        [np.log10(10500.0), 3.95, -0.6],
-        [np.log10(16500.0), 4.25, -0.2],
-        [np.log10(23000.0), 4.2, -1.2],
-        [np.log10(30000.0), 4.55, -0.9],
-        [np.log10(36000.0), 4.75, -0.4],
+        [np.log10(7500.0), 3.7, 0.2],
+        [np.log10(10500.0), 3.15, -0.6],
+        [np.log10(15000.0), 3.35, -0.4],
+        [np.log10(20000.0), 3.7, -1.0],
+        [np.log10(26000.0), 4.3, -0.9],
+        [np.log10(33000.0), 4.75, -0.4],
     ])
     p = _spline_path(way, n_frames)
     teff = 10 ** p[:, 0]
@@ -139,23 +139,33 @@ def make_grid_walk(paths, n_frames: int, outdir: Path | None, formats=("mp4", "g
     TT, LL = np.meshgrid(tg, lg, indexing="ij")
 
     fig = vc.new_figure(1280, 720)
-    axm = fig.add_axes([0.075, 0.14, 0.32, 0.74])
-    axs = fig.add_axes([0.475, 0.14, 0.50, 0.74])
+    axm = fig.add_axes([0.07, 0.14, 0.45, 0.74])
+    axs = fig.add_axes([0.60, 0.14, 0.38, 0.74])
 
     # ---- map (static layer) ----
-    axm.set_xlim(np.log10(52000), np.log10(3200))
-    axm.set_ylim(5.25, -0.25)
-    axm.scatter(np.log10(TT[~full]), LL[~full], s=9, facecolors="none", edgecolors=vc.INK_3,
-                linewidths=0.5, alpha=0.9, zorder=1)
-    axm.scatter(np.log10(TT[full]), LL[full], s=9, color=vc.INK_2, alpha=0.9, linewidths=0, zorder=2)
-    xt = [4000, 6000, 10000, 20000, 40000]
-    axm.set_xticks(np.log10(xt), [f"{t // 1000}k" for t in xt])
+    idx = np.arange(len(tg), dtype=float)
+
+    def X(T):
+        """Teff -> node index (the grid is irregular in Teff, so the map uses node space)."""
+        return np.interp(T, tg, idx)
+
+    axm.set_xlim(len(tg) - 0.4, -0.6)
+    axm.set_ylim(5.3, -0.3)
+    # soft field over the empty region
+    axm.imshow(~full.T, extent=(-0.5, len(tg) - 0.5, 5.25, -0.25), aspect="auto", origin="upper",
+               cmap=LinearSegmentedColormap.from_list("e", [vc.SURFACE, "#1f1f23"]), vmin=0, vmax=1,
+               interpolation="nearest", zorder=0)
+    I, J = np.meshgrid(idx, lg, indexing="ij")
+    axm.scatter(I[~full], J[~full], s=12, facecolors="none", edgecolors="#55554f",
+                linewidths=0.6, zorder=1)
+    axm.scatter(I[full], J[full], s=12, color="#d8d7cf", alpha=0.95, linewidths=0, zorder=2)
+    xt = [4000, 6000, 8000, 10000, 13000, 20000, 30000, 50000]
+    axm.set_xticks(X(xt), [f"{t // 1000}k" for t in xt])
     axm.set_yticks([0, 1, 2, 3, 4, 5])
     axm.set_xlabel("Teff  (K)", labelpad=6)
     axm.set_ylabel("log g", labelpad=6)
     axm.tick_params(labelsize=10)
-    # whole route, faint
-    axm.plot(np.log10(path[:, 0]), path[:, 1], color=vc.INK_3, lw=0.7, ls=(0, (2, 4)), zorder=1, alpha=0.9)
+    axm.plot(X(path[:, 0]), path[:, 1], color=vc.INK_2, lw=0.9, ls=(0, (1.5, 4)), zorder=1, alpha=0.6)
 
     # ---- sed axes (static layer) ----
     lam = grid.wavelengths * 1e-4                             # micron
@@ -170,8 +180,8 @@ def make_grid_walk(paths, n_frames: int, outdir: Path | None, formats=("mp4", "g
     axs.tick_params(labelsize=10)
 
     dyn = {}                                                  # artists removed each frame
-    n_trail = 70
-    counter = fig.text(0.475, 0.915, "", fontsize=13, color=vc.INK_2, family="monospace", va="bottom")
+    n_trail = 45
+    counter = fig.text(0.60, 0.915, "", fontsize=13, color=vc.INK_2, family="monospace", va="bottom")
 
     def lamF(flux):
         return lam * flux
@@ -189,30 +199,30 @@ def make_grid_walk(paths, n_frames: int, outdir: Path | None, formats=("mp4", "g
         # trail
         j0 = max(0, i - n_trail)
         if i - j0 >= 2:
-            pts = np.column_stack([np.log10(path[j0:i + 1, 0]), path[j0:i + 1, 1]])
+            pts = np.column_stack([X(path[j0:i + 1, 0]), path[j0:i + 1, 1]])
             segs = np.stack([pts[:-1], pts[1:]], axis=1)
             alpha = np.linspace(0.0, 0.8, len(segs))
             rgba = [(*col, a) for a in alpha]
-            lc = LineCollection(segs, colors=rgba, linewidths=1.6, zorder=3, capstyle="round")
+            lc = LineCollection(segs, colors=rgba, linewidths=2.6, zorder=3, capstyle="round")
             axm.add_collection(lc)
             dyn["trail"] = lc
         # current cell and its corners
         it = int(np.clip(np.searchsorted(tg, T) - 1, 0, len(tg) - 2))
         ig = int(np.clip(np.searchsorted(lg, g) - 1, 0, len(lg) - 2))
-        x0, x1 = np.log10(tg[it]), np.log10(tg[it + 1])
-        rect = Rectangle((x0, lg[ig]), x1 - x0, lg[ig + 1] - lg[ig], fill=False,
-                         edgecolor=col, lw=0.8, alpha=0.7, zorder=3)
+        x0, x1 = float(it), float(it + 1)
+        rect = Rectangle((x0, lg[ig]), x1 - x0, lg[ig + 1] - lg[ig], facecolor=(*col, 0.22),
+                         edgecolor=col, lw=0.9, zorder=3)
         axm.add_patch(rect)
         dyn["cell"] = rect
         cx = [x0, x1, x0, x1]
         cy = [lg[ig], lg[ig], lg[ig + 1], lg[ig + 1]]
-        dyn["corners"] = axm.scatter(cx, cy, s=26, facecolors="none", edgecolors=col, linewidths=1.0, zorder=4)
+        dyn["corners"] = axm.scatter(cx, cy, s=48, facecolors="none", edgecolors=col, linewidths=1.2, zorder=4)
         # glowing query point
-        xq = np.log10(T)
+        xq = float(X(T))
         glow = []
-        for s, a in ((1500, 0.05), (700, 0.09), (300, 0.16), (110, 0.3)):
+        for s, a in ((2600, 0.05), (1200, 0.09), (520, 0.16), (200, 0.3)):
             glow.append(axm.scatter([xq], [g], s=s, color=col, alpha=a, linewidths=0, zorder=5))
-        glow.append(axm.scatter([xq], [g], s=26, color=_mix(col, "#ffffff", 0.5), linewidths=0, zorder=6))
+        glow.append(axm.scatter([xq], [g], s=50, color=_mix(col, "#ffffff", 0.5), linewidths=0, zorder=6))
         dyn["glow"] = glow
 
         # ---- SED ----
