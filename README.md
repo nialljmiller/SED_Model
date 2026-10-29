@@ -215,6 +215,20 @@ params = FitParams(
   </tr>
 </table>
 
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/extinction_laws.png" alt="A(lambda)/A(V) for the extinction laws"/><br/><sub>The extinction laws, A(&lambda;)/A(V)</sub></td>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/reddening_vectors.png" alt="Reddening vectors in the U-B, B-V plane"/><br/><sub>Reddening vectors, A<sub>V</sub> = 1</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/cmd_grid.png" alt="Colour-magnitude lines of constant gravity"/><br/><sub>Lines of constant log g from the grid</sub></td>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/between_nodes.png" alt="Hermite interpolation between two grid nodes"/><br/><sub>Interpolating between two grid nodes</sub></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/hermite_vs_linear.png" alt="Hermite and linear interpolation across grid cells" width="60%"/><br/><sub>Hermite is smooth across grid nodes; linear has a kink at each one</sub></td>
+  </tr>
+</table>
+
 Each one is made by a script in `demos/` (`gallery_*.py`) from real grids and filters. More plots and the full-size movies are in the [gallery](https://nialljmiller.github.io/SED_Model/demos/gallery/).
 
 ---

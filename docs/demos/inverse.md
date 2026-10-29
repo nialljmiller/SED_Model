@@ -6,6 +6,10 @@ To fit real data instead, set `SYNTHESISE = False` and fill in the `OBS_*` array
 
 Concepts demonstrated: [the inverse model](../guide/inverse.md), walker initialisation, posterior [persistence and summaries](../guide/results-io.md).
 
+![Posterior corner plot](../assets/gallery/posterior_corner.png)
+
+*From the gallery: a corner plot in the same style.*
+
 ## Source
 
 ```python

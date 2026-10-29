@@ -53,6 +53,10 @@ A real `run_inverse` fit for a known star (6150 K, log g 4.15, [M/H] −0.30, A_
 
 Linear interpolation has a kink in dV/dTeff at every grid node; `hermite_bounded` does not.
 
+## Smaller copies
+
+For a web page card or a slide there are compressed copies of the fit movie in `docs/assets/gallery/card/`: `sed_fit_card.mp4` (960×540, 1.2 MB), `sed_fit_card_small.mp4` (640×360, 0.5 MB) and `sed_fit_poster.jpg` (the poster frame).
+
 ## Making them
 
 ```bash

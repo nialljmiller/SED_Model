@@ -43,6 +43,12 @@ posterior = run_inverse(
 
 With no `fit_params` supplied, a default is built from the grid: `Teff`, `logg`, `[M/H]` free across the full grid, `Av` fixed at 0, distance fixed at `d` (default 1 pc). If `fit_params` **is** supplied, the `d` keyword is ignored — set distance through `fit_params`.
 
+<video controls loop muted playsinline width="100%" poster="../assets/gallery/sed_fit_still">
+  <source src="../assets/gallery/sed_fit.mp4" type="video/mp4">
+</video>
+
+*Walker model SEDs of a real run_inverse fit collapsing onto the photometry.*
+
 ## Choosing what to sample
 
 ```python
@@ -127,6 +133,10 @@ After sampling, a `UserWarning` is emitted if any walker's acceptance fraction f
 
 !!! warning "Fixed radius"
     `R` is not sampled, so it feeds directly into Teff through L ∝ R²T⁴. A radius 14 % too small biases Teff about 7 % high. Fitting the apparent UBVRIJHK magnitudes of Vega at 7.68 pc, with R = 2.36 R☉ (its polar radius) the result was 10 400 K; with R = 2.71 R☉ (from the interferometric angular diameter) it was 9 500 K, against about 9 600 K from the literature. Use a radius that matches the measurement.
+
+![Posterior corner plot](../assets/gallery/posterior_corner.png)
+
+*Posterior of a fit for a known star (thin lines are the truth). Note the Teff–A_V degeneracy and the log g truncation at the grid edge.*
 
 ## The result
 

@@ -4,6 +4,10 @@
 
 Concepts demonstrated: [grid and filter loading](../guide/grids-and-filters.md), the classic `run_forward` convention, interpolation diagnostics (`nearest_grid_distance`, `clamped`), and [CSV output](../guide/results-io.md).
 
+![Colour-magnitude lines of constant gravity](../assets/gallery/cmd_grid.png)
+
+*From the gallery: lines of constant log g in star colours.*
+
 ## Source
 
 ```python

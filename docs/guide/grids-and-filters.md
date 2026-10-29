@@ -10,6 +10,12 @@ grid = load_grid("/path/to/Kurucz2003all/")
 
 `load_grid()` expects an SED_Tools-built directory containing `flux_cube.bin`. A co-located `lookup_table.csv` can be checked separately with `sed_model.grid.validate_lookup_table(grid)`; it is not read at load time.
 
+<video controls loop muted playsinline width="100%">
+  <source src="../assets/gallery/grid_walk.mp4" type="video/mp4">
+</video>
+
+*A query point moving through the Kurucz2003all grid. The dark region has no model; the route stays in cells with a complete interpolation stencil.*
+
 ### Binary format of `flux_cube.bin`
 
 | Section | Contents |

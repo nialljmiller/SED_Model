@@ -11,6 +11,9 @@ Documentation, demos and tests only.
   interpolation. The shared look is in `demos/viz_common.py`. Output is in
   `docs/assets/gallery/` and is shown in the README and the documentation.
 - `tests/test_gallery.py` runs each gallery script in its quick mode.
+- The movies and plots are used in the README, the documentation home page and
+  the forward, inverse, extinction and grid guides. Compressed copies of the fit
+  movie for web pages are in `docs/assets/gallery/card/`.
 
 ## [0.4.6] — 2026-10-27
 
