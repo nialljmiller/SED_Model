@@ -29,6 +29,7 @@ Needs the Kurucz2003all grid, the Johnson and 2MASS filters and the Vega SED
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 import tempfile
 import warnings
@@ -51,11 +52,12 @@ D = 100.0 * 3.0857e18           # 100 pc (cm)
 SIGMA = 0.03                    # mag
 SYSTEM = "Vega"
 BOX = dict(teff=(4200.0, 9000.0), logg=(2.0, 5.0), meta=(-1.5, 0.5))   # prior box
-START = dict(teff=6900.0, logg=3.5, meta=-0.6)                         # centre of the starting cloud
-SCATTER = 0.30                  # starting scatter, fraction of each range
-N_WALKERS = 48
-N_STEPS = 160                   # chain length kept (n_burn=0)
-SHOW_STEPS = 100                # steps replayed at easing speed (the rest plays slowly while the panel zooms)
+START = dict(teff=6600.0, logg=3.5, meta=-0.5)                         # centre of the starting cloud
+SCATTER = 0.45                  # starting scatter, fraction of each range
+N_WALKERS = 80
+STRETCH_A = 1.1
+N_STEPS = 300                   # chain length kept (n_burn=0)
+SHOW_STEPS = 170                # steps replayed at easing speed (the rest plays slowly while the panel zooms)
 
 
 def build_problem():
@@ -83,12 +85,14 @@ def run_fit(grid, filters, seed=7):
     mags = np.array([fwd.magnitudes[n] for n in names]) + noise
     sig = np.full(len(names), SIGMA)
     fp = fit_params_from_grid(grid, teff=BOX["teff"], logg=BOX["logg"], meta=BOX["meta"], d_cm=D)
+    import emcee
+    moves = [(emcee.moves.StretchMove(a=STRETCH_A), 1.0)]     # smaller step scale: slower, gradual collapse
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")       # a deliberately short chain
         res = run_inverse(list(mags), list(sig), names, R, grid, filters, fit_params=fp,
                           mag_system=SYSTEM, n_walkers=N_WALKERS, n_steps=N_STEPS, n_burn=0,
                           n_thin=1, init="ball", p0_centre=START, p0_scatter=SCATTER,
-                          seed=seed, progress=False, verbose=False)
+                          seed=seed, progress=False, verbose=False, moves=moves)
     chain = res.samples.reshape(N_STEPS, N_WALKERS, -1)       # (step, walker, param): flat order is step-major
     # observed flux points: the true SED at each band's effective wavelength, scaled by the noise drawn
     lam = np.array([band_lambda(f) for f in filters])
@@ -98,11 +102,47 @@ def run_fit(grid, filters, seed=7):
     return res, chain, lam, obs, err
 
 
+def vivid(teff: float):
+    """Presentation colour of a walker: the hue of star_color(Teff) pushed towards full saturation,
+    the further Teff is from the true star (which stays near white).  Cool = orange, hot = blue."""
+    c = np.array(vc.star_color(teff))
+    hue = (c - c.min()) / max(c.max() - c.min(), 1e-6)
+    a = float(np.clip(abs(teff - TRUE["teff"]) / 1900.0, 0.0, 1.0)) ** 0.75
+    return tuple(np.clip((1 - a) * np.array([1.0, 0.97, 0.94]) + a * (0.15 + 0.85 * hue), 0, 1))
+
+
+def zoom_windows(chain, sched, n_frames):
+    """Per-frame (xlim, ylim) of the Teff-logg panel: the box, then closing in on the cloud."""
+    lo = np.array([BOX["teff"][0], BOX["logg"][0]])
+    hi = np.array([BOX["teff"][1], BOX["logg"][1]])
+    fin = chain[-80:, :, :2].reshape(-1, 2)
+    floor = np.array([5 * fin[:, 0].std(), 4 * fin[:, 1].std()])
+    cen = np.zeros((n_frames, 2))
+    ext = np.zeros((n_frames, 2))
+    for i, st in enumerate(sched):
+        pts = chain[st:st + 15, :, :2].reshape(-1, 2)
+        cen[i] = np.median(pts, 0)
+        ext[i] = np.maximum(3.2 * pts.std(0), floor)
+    k = np.ones(31) / 31.0
+    pad = lambda a: np.pad(a, (15, 15), mode="edge")
+    for a in (cen, ext):
+        for j in range(2):
+            a[:, j] = np.convolve(pad(a[:, j]), k, mode="valid")
+    ext = np.minimum(ext, (hi - lo) / 2)
+    cen = np.clip(cen, lo + ext, hi - ext)
+    # the first stretch shows the whole box
+    w = np.clip((np.arange(n_frames) - 0.03 * n_frames) / (0.12 * n_frames), 0, 1)
+    w = (w * w * (3 - 2 * w))[:, None]
+    ext = (1 - w) * (hi - lo) / 2 + w * ext
+    cen = (1 - w) * (lo + hi) / 2 + w * cen
+    return cen - ext, cen + ext
+
+
 def step_schedule(n_frames, n_lead, n_hold, n_show):
     """Chain step shown on each frame: hold, ease in over the run, hold the end."""
     n_move = n_frames - n_lead - n_hold
     t = np.linspace(0.0, 1.0, n_move)
-    s = np.round((n_show - 1) * t ** 1.3).astype(int)
+    s = np.round((n_show - 1) * t ** 2.6).astype(int)
     tail = np.round(np.linspace(n_show - 1, N_STEPS - 1, n_hold)).astype(int)   # converged chain keeps running
     return np.concatenate([np.zeros(n_lead, int), s, tail])
 
@@ -114,31 +154,24 @@ def main():
 
     import matplotlib
     matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
 
     grid, filters = build_problem()
     res, chain, lam, obs, err = run_fit(grid, filters)
-    print(f"chain {chain.shape}: Teff {res.samples[-N_WALKERS:, 0].mean():.0f} K at the end "
-          f"(truth {TRUE['teff']:.0f})")
+    print(f"chain {chain.shape}: Teff {chain[-1, :, 0].mean():.0f} K at the end (truth {TRUE['teff']:.0f})")
 
     if args.quick:
-        W, H, fps, secs = 640, 360, 15, 5
+        W, H, fps, secs = 640, 360, 15, 6
         outdir = Path(tempfile.mkdtemp(prefix="gallery_fit_"))
     else:
-        W, H, fps, secs = 1280, 720, 30, 12.5
+        W, H, fps, secs = 1280, 720, 30, 12.0
         outdir = vc.ASSETS
     n_frames = int(round(fps * secs))
-    n_lead, n_hold = int(0.5 * fps), int(2.4 * fps)
+    n_lead, n_hold = int(0.4 * fps), int(1.5 * fps)
     fade = int(0.35 * fps)
     sched = step_schedule(n_frames, n_lead, n_hold, SHOW_STEPS)
+    xlo, xhi = zoom_windows(chain, sched, n_frames)
 
-    # model SEDs for every step that will be shown (one forward model per walker)
-    sig_t = chain[SHOW_STEPS:, :, 0].std()
-    mu_t = chain[SHOW_STEPS:, :, 0].mean()
-    sig_m = chain[SHOW_STEPS:, :, 2].std()
-    mu_m = chain[SHOW_STEPS:, :, 2].mean()
-    zoom_t = (mu_t + 5 * sig_t, mu_t - 5 * sig_t)          # final window of the small panel
-    zoom_m = (max(BOX["meta"][0], mu_m - 4 * sig_m), min(BOX["meta"][1], mu_m + 4 * sig_m))
     cache: dict[int, np.ndarray] = {}
     wave = None
 
@@ -162,7 +195,7 @@ def main():
     fig = vc.new_figure(W, H)
     s = W / 1280.0
     ax = fig.add_axes([0.055, 0.115, 0.625, 0.80])
-    ax2 = fig.add_axes([0.745, 0.115, 0.215, 0.80])
+    ax2 = fig.add_axes([0.765, 0.115, 0.205, 0.80])
 
     ymid = np.log10(obs.mean())
     ax.set_xscale("log")
@@ -176,64 +209,79 @@ def main():
     ax.spines["left"].set_visible(False)
     ax.tick_params(labelsize=11 * s, length=3)
 
-    ax2.set_xlim(*BOX["teff"][::-1])           # hot on the left, as in an HR diagram
-    ax2.set_ylim(*BOX["meta"])
-    ax2.set_xticks([])
-    ax2.set_yticks([])
-    for sp in ("left", "bottom"):
-        ax2.spines[sp].set_color(vc.INK_3)
+    ax2.xaxis.set_major_locator(MaxNLocator(3, steps=[1, 2, 5]))
+    ax2.yaxis.set_major_locator(MaxNLocator(3, steps=[1, 2, 5]))
+    ax2.tick_params(labelsize=9.5 * s, length=2.5, pad=2)
+    ax2.set_xlim(xhi[0, 0], xlo[0, 0])           # hot on the left, as in an HR diagram
+    ax2.set_ylim(xhi[0, 1], xlo[0, 1])           # gravity increases downward
 
-    # walker SED bundle
-    cols0 = [vc.star_color(t) for t in chain[0][:, 0]]
-    lines = [ax.plot(micron, np.full(keep.sum(), np.nan), lw=0.9 * s, color=c, alpha=0.30,
-                     solid_capstyle="round")[0] for c in cols0]
-    # observed photometry (drawn last, on top)
-    ax.errorbar(lam / 1e4, obs, yerr=err, fmt="o", ms=7.5 * s, mfc=vc.ORANGE, mec=vc.INK,
-                mew=0.8 * s, ecolor=vc.ORANGE, elinewidth=1.4 * s, capsize=3 * s, zorder=5)
+    # per-walker colours: each walker's own Teff (chroma-boosted)
+    def colours(th):
+        return np.array([vivid(t) for t in th[:, 0]])
 
-    # Teff-[M/H] panel
-    hist = ax2.scatter([], [], s=5 * s * s, c=vc.INK_2, alpha=0.10, linewidths=0, zorder=1)
-    trail = ax2.scatter([], [], s=9 * s * s, linewidths=0, zorder=2)
-    now = ax2.scatter([], [], s=30 * s * s, edgecolors=vc.SURFACE, linewidths=0.5 * s, zorder=3)
+    glow = [ax.plot(micron, np.full(keep.sum(), np.nan), lw=4.0 * s, alpha=0.0,
+                    solid_capstyle="round")[0] for _ in range(N_WALKERS)]
+    lines = [ax.plot(micron, np.full(keep.sum(), np.nan), lw=1.0 * s, alpha=0.4,
+                     solid_capstyle="round")[0] for _ in range(N_WALKERS)]
+    ax.errorbar(lam / 1e4, obs, yerr=err, fmt="o", ms=9.5 * s, mfc=vc.ORANGE, mec=vc.SURFACE,
+                mew=1.4 * s, ecolor=vc.ORANGE, elinewidth=1.4 * s, capsize=3 * s, zorder=5)
+
+    hist = ax2.scatter([], [], s=4 * s * s, c=vc.INK_2, alpha=0.12, linewidths=0, zorder=1)
+    trail = ax2.scatter([], [], s=8 * s * s, linewidths=0, zorder=2)
+    now = ax2.scatter([], [], s=26 * s * s, linewidths=0, zorder=3)
+    vline = ax2.axvline(TRUE["teff"], color=vc.INK_2, lw=0.7 * s, alpha=0, zorder=4)
+    hline = ax2.axhline(TRUE["logg"], color=vc.INK_2, lw=0.7 * s, alpha=0, zorder=4)
 
     counter = ax.text(0.985, 0.955, "", transform=ax.transAxes, ha="right", va="top",
                       fontsize=19 * s, color=vc.INK)
+    truth_rgb = np.array(vivid(TRUE["teff"]))
 
     def draw(i):
         step = int(sched[i])
         th = chain[step]
-        cols = np.array([vc.star_color(t) for t in th[:, 0]])
-        a_vis = min(1.0, (i + 1) / fade, (n_frames - i) / fade)      # fade in/out for a clean loop
+        cols = colours(th)
+        a_vis = min(1.0, (i + 1) / fade, (n_frames - i) / fade)      # fade in/out: clean loop seam
+        # how converged is the bundle (Teff spread vs the final one): drives the glow
+        conv = float(np.clip(1.0 - (th[:, 0].std() - 20.0) / 300.0, 0.0, 1.0))
         y = seds(step)[:, keep]
-        for ln, row, c in zip(lines, y, cols):
+        for ln, gl, row, c in zip(lines, glow, y, cols):
             ln.set_ydata(row)
             ln.set_color(c)
-            ln.set_alpha(0.30 * a_vis)
-        # history cloud, recent trail, current walkers
-        hist.set_offsets(chain[:step + 1].reshape(-1, 3)[:, [0, 2]])
-        recent = chain[max(0, step - 4):step]
+            ln.set_alpha(0.42 * a_vis)
+            gl.set_ydata(row)
+            gl.set_color(c)
+            gl.set_alpha(0.05 * conv * a_vis)
+        hist.set_offsets(chain[:step + 1, :, :2].reshape(-1, 2))
+        hist.set_alpha(0.12 * a_vis)
+        recent = chain[max(0, step - 5):step, :, :2].reshape(-1, 2)
+        trail.set_offsets(recent if len(recent) else np.empty((0, 2)))
         if len(recent):
-            trail.set_offsets(recent.reshape(-1, 3)[:, [0, 2]])
-            trail.set_facecolor(np.tile(np.c_[cols, np.full(len(cols), 0.35)], (len(recent), 1)))
-        else:
-            trail.set_offsets(np.empty((0, 2)))
-        now.set_offsets(th[:, [0, 2]])
+            nrec = len(recent) // len(cols)
+            trail.set_facecolor(np.tile(np.c_[cols, np.full(len(cols), 0.30 * a_vis)], (nrec, 1)))
+        now.set_offsets(th[:, :2])
         now.set_facecolor(np.c_[cols, np.full(len(cols), 0.95 * a_vis)])
-        now.set_edgecolor(vc.SURFACE)
-        z = np.clip((i - (n_frames - n_hold) - 0.08 * n_hold) / (0.65 * n_hold), 0.0, 1.0)
-        z = z * z * (3 - 2 * z)                                 # smoothstep zoom of the small panel
-        ax2.set_xlim(BOX["teff"][1] + z * (zoom_t[0] - BOX["teff"][1]),
-                     BOX["teff"][0] + z * (zoom_t[1] - BOX["teff"][0]))
-        ax2.set_ylim(BOX["meta"][0] + z * (zoom_m[0] - BOX["meta"][0]),
-                     BOX["meta"][1] + z * (zoom_m[1] - BOX["meta"][1]))
+        ax2.set_xlim(xhi[i, 0], xlo[i, 0])
+        ax2.set_ylim(xhi[i, 1], xlo[i, 1])
+        z = float(np.clip((i - (n_frames - n_hold) + 0.4 * n_hold) / (0.5 * n_hold), 0, 1)) * a_vis
+        vline.set_alpha(0.8 * z)
+        hline.set_alpha(0.8 * z)
         counter.set_text(f"Teff {np.median(th[:, 0]):.0f} K")
         counter.set_alpha(a_vis)
 
     paths = vc.save_movie(fig, draw, n_frames, "sed_fit", fps=fps, outdir=outdir,
-                          gif_width=720 if not args.quick else 480)
+                          gif_width=720 if not args.quick else 480, gif_fps=12)
 
-    # still: mid-convergence, the messy bundle already pulling onto the data
-    draw(int(np.argmax(sched >= 9)))
+    mp4 = paths[0]
+    for crf in (24, 27, 30):                      # keep the README movie small
+        if mp4.stat().st_size <= 3.8e6:
+            break
+        tmp = mp4.with_suffix(".tmp.mp4")
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp4), "-c:v", "libx264",
+                        "-pix_fmt", "yuv420p", "-crf", str(crf), "-movflags", "+faststart", str(tmp)],
+                       check=True)
+        tmp.replace(mp4)
+
+    draw(int(0.35 * n_frames))      # thumbnail: messy but already organised
     still = vc.save_still(fig, "sed_fit_still", outdir=outdir)
     for p in paths + [still]:
         print(f"wrote {p}  ({p.stat().st_size / 1e6:.2f} MB)")
