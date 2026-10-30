@@ -6,7 +6,7 @@
 
 SED_Model computes synthetic spectral energy distributions and broadband magnitudes from stellar atmosphere grids, and infers stellar parameters from observed magnitudes with MCMC. It is a spin-off of the `colors` module of [MESA](https://docs.mesastar.org/) and reproduces its synthetic photometry. It reads the grids and filter files written by [SED_Tools](https://github.com/nialljmiller/SED_Tools).
 
-Version `0.4.6` · [Documentation](https://nialljmiller.github.io/SED_Model/) · [Changelog](CHANGELOG.md)
+Version `0.4.7` · [Documentation](https://nialljmiller.github.io/SED_Model/) · [Changelog](CHANGELOG.md)
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/sed_fit.mp4"><img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/sed_fit.gif" alt="An MCMC fit of a star: model SEDs from walkers coloured by their own temperature collapse onto the observed photometry" width="720"/></a>
