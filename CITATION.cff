@@ -9,6 +9,10 @@ authors:
     orcid: "https://orcid.org/0000-0002-3780-0592"
     email: "niall.j.miller@gmail.com"
 version: "0.4.8"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.23983645"
+    description: "Zenodo concept DOI: all versions of SED_Model (each release also has its own version DOI)"
 repository-code: "https://github.com/nialljmiller/SED_Model"
 url: "https://nialljmiller.github.io/SED_Model/"
 license:
