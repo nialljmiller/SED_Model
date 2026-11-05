@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.8] — 2026-11-05
+
+Metadata only; no change to the package code.
+
+- Releases are archived on Zenodo. `.zenodo.json` gives the archive its title,
+  author, licence note and keywords.
+- `CITATION.cff`: the release date now follows each release (it had stayed at
+  2026-10-25) and the author has an ORCID.
+- `tests/test_metadata.py` checks that the version in `meson.build`, the README,
+  `CITATION.cff`, the docs and the CHANGELOG agree and that `.zenodo.json` is valid.
+
 ## [0.4.7] — 2026-10-29
 
 Documentation, demos and tests only.

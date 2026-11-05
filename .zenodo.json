@@ -1,0 +1,34 @@
+{
+  "title": "SED_Model: synthetic photometry and stellar parameter inference",
+  "upload_type": "software",
+  "description": "SED_Model computes synthetic spectral energy distributions and broadband magnitudes from stellar atmosphere grids, and infers stellar parameters from observed magnitudes with MCMC. It is a spin-off of the colors module of MESA and reproduces its synthetic photometry. The Python code is MIT-licensed; the Fortran kernels in fortran/ are ported from MESA and are LGPL-3.0-or-later.",
+  "creators": [
+    {
+      "name": "Miller, Niall",
+      "orcid": "0000-0002-3780-0592"
+    }
+  ],
+  "license": "MIT",
+  "keywords": [
+    "stellar atmospheres",
+    "synthetic photometry",
+    "spectral energy distribution",
+    "bolometric corrections",
+    "MCMC",
+    "MESA"
+  ],
+  "access_right": "open",
+  "related_identifiers": [
+    {
+      "relation": "isSupplementTo",
+      "identifier": "https://github.com/nialljmiller/SED_Model",
+      "scheme": "url"
+    },
+    {
+      "relation": "isDerivedFrom",
+      "identifier": "https://docs.mesastar.org/",
+      "scheme": "url"
+    }
+  ],
+  "notes": "The Fortran kernels in fortran/ are LGPL-3.0-or-later (ported from the MESA colors module); everything else is MIT. See the LICENSE file."
+}

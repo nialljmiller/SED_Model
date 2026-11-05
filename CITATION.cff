@@ -6,14 +6,15 @@ abstract: "Synthetic photometry and stellar parameter inference: forward modelli
 authors:
   - family-names: "Miller"
     given-names: "Niall"
+    orcid: "https://orcid.org/0000-0002-3780-0592"
     email: "niall.j.miller@gmail.com"
-version: "0.4.7"
+version: "0.4.8"
 repository-code: "https://github.com/nialljmiller/SED_Model"
 url: "https://nialljmiller.github.io/SED_Model/"
 license:
   - MIT
   - LGPL-3.0-or-later
-date-released: 2026-10-25
+date-released: 2026-11-05
 references:
   - type: software
     title: "Modules for Experiments in Stellar Astrophysics (MESA), colors module"
