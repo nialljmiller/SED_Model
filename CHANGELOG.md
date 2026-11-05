@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.9] — 2026-11-05
 
 Metadata only: the Zenodo concept DOI (`10.5281/zenodo.23983645`) is in
 `CITATION.cff` and the README, with a DOI badge. The 0.4.8 archive is
