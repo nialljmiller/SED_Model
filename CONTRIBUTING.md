@@ -53,6 +53,8 @@ python -m pytest /path/to/SED_Model/tests/test_forward.py /path/to/SED_Model/tes
 
 Changes go through a branch and pull request; do not push to `main`. Merging a pull request that changes the `version` in `meson.build` publishes that version to PyPI, so leave the version alone unless you are asked to bump it. Add an entry to `CHANGELOG.md` for any user-visible change.
 
+A release bumps the version in `meson.build`, `README.md`, `CITATION.cff` and `docs/index.md`, sets `date-released` in `CITATION.cff` and renames `[Unreleased]` in `CHANGELOG.md` with the same date. `tests/test_metadata.py` checks that they agree. Each GitHub release is archived on Zenodo, which reads `.zenodo.json`.
+
 ## Code Style
 
 There is no strict formatter yet. Match the style of the surrounding code.
