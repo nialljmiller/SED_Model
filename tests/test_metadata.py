@@ -26,8 +26,9 @@ def test_version_is_the_same_everywhere():
     assert re.search(r'^version:\s*"%s"' % re.escape(v), cff, re.M), "CITATION.cff version"
     assert f"Version `{v}`" in (ROOT / "README.md").read_text(), "README.md version"
     assert f"**{v}**" in (ROOT / "docs" / "index.md").read_text(), "docs/index.md version"
-    first = re.search(r"^## \[([^\]]+)\]", (ROOT / "CHANGELOG.md").read_text(), re.M).group(1)
-    assert first == v, f"top CHANGELOG entry is [{first}], expected [{v}]"
+    entries = re.findall(r"^## \[([^\]]+)\]", (ROOT / "CHANGELOG.md").read_text(), re.M)
+    first = next(e for e in entries if e.lower() != "unreleased")
+    assert first == v, f"newest released CHANGELOG entry is [{first}], expected [{v}]"
 
 
 def test_citation_date_matches_changelog():

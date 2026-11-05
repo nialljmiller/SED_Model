@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+Metadata only: the Zenodo concept DOI (`10.5281/zenodo.23983645`) is in
+`CITATION.cff` and the README, with a DOI badge. The 0.4.8 archive is
+`10.5281/zenodo.23983646`.
+
 ## [0.4.8] — 2026-11-05
 
 Metadata only; no change to the package code.

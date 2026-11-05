@@ -6,7 +6,7 @@
 
 SED_Model computes synthetic spectral energy distributions and broadband magnitudes from stellar atmosphere grids, and infers stellar parameters from observed magnitudes with MCMC. It is a spin-off of the `colors` module of [MESA](https://docs.mesastar.org/) and reproduces its synthetic photometry. It reads the grids and filter files written by [SED_Tools](https://github.com/nialljmiller/SED_Tools).
 
-Version `0.4.8` · [Documentation](https://nialljmiller.github.io/SED_Model/) · [Changelog](CHANGELOG.md)
+Version `0.4.8` · [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23983645.svg)](https://doi.org/10.5281/zenodo.23983645) · [Documentation](https://nialljmiller.github.io/SED_Model/) · [Changelog](CHANGELOG.md)
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/sed_fit.mp4"><img src="https://raw.githubusercontent.com/nialljmiller/SED_Model/main/docs/assets/gallery/sed_fit.gif" alt="An MCMC fit of a star: model SEDs from walkers coloured by their own temperature collapse onto the observed photometry" width="720"/></a>
@@ -277,7 +277,7 @@ tools/        build helpers used by CI
 
 ## Citing and credits
 
-Cite SED_Model with [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this repository" button reads it).
+Cite SED_Model with [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this repository" button reads it). Every release is archived on Zenodo; [10.5281/zenodo.23983645](https://doi.org/10.5281/zenodo.23983645) always points to the latest version, and each release also has its own version DOI.
 
 - **MESA:** the Fortran kernels are ported from its `colors` module and keep its licence (LGPL-3.0-or-later). Please also cite MESA: Paxton et al. 2011, ApJS 192, 3; 2013, ApJS 208, 4; 2015, ApJS 220, 15; 2018, ApJS 234, 34; 2019, ApJS 243, 10; Jermyn et al. 2023, ApJS 265, 15.
 - **SED_Tools** produces the grids and filter files.

@@ -51,6 +51,10 @@ SED_Model  ->  generate synthetic magnitudes and infer stellar parameters
 - [Fortran kernels](fortran.md) — how the Fortran sources map onto MESA's `colors` module.
 - [Testing and Validation](testing.md) — what is tested, and how the results compare with MESA, MSG and MIST.
 
+## Citing
+
+Cite SED_Model with the `CITATION.cff` in the repository. Every release is archived on Zenodo: [10.5281/zenodo.23983645](https://doi.org/10.5281/zenodo.23983645) always points to the latest version, and each release also has its own version DOI.
+
 ## Credits
 
 The Fortran kernels are ported from the `colors` module of [MESA](https://docs.mesastar.org/). If you use SED_Model, please also cite MESA: Paxton et al. 2011, ApJS 192, 3; 2013, ApJS 208, 4; 2015, ApJS 220, 15; 2018, ApJS 234, 34; 2019, ApJS 243, 10; Jermyn et al. 2023, ApJS 265, 15. The README lists the other works SED_Model builds on.
